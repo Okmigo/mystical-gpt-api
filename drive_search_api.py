@@ -14,7 +14,6 @@ model = SentenceTransformer('all-MiniLM-L6-v2')
 GCS_URL = 'https://storage.googleapis.com/mystical-gpt-bucket/embeddings.db'
 DB_PATH = 'embeddings.db'
 
-
 # Download from GCS if missing
 def download_embeddings():
     if not os.path.exists(DB_PATH):
@@ -23,8 +22,8 @@ def download_embeddings():
         with open(DB_PATH, 'wb') as f:
             f.write(r.content)
         print("✅ Download complete.")
-print(f"💾 Checking if {DB_PATH} exists:", os.path.exists(DB_PATH))
-print("📦 Contents of current dir:", os.listdir())
+    print(f"💾 Checking if {DB_PATH} exists:", os.path.exists(DB_PATH))
+    print("📦 Contents of current dir:", os.listdir())
 
 # Load vectors from database
 def load_embeddings():
@@ -80,3 +79,16 @@ def search():
 
     except Exception as e:
         print(f"❌ Exception in /search: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/openapi.yaml')
+def serve_openapi_yaml():
+    return send_file('docs/openapi.yaml', mimetype='text/yaml')
+
+@app.route('/ping')
+def ping():
+    return '✅ API is alive!'
+
+if __name__ == '__main__':
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host='0.0.0.0', port=port)
