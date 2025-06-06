@@ -23,6 +23,8 @@ def download_embeddings():
         with open(DB_PATH, 'wb') as f:
             f.write(r.content)
         print("✅ Download complete.")
+print(f"💾 Checking if {DB_PATH} exists:", os.path.exists(DB_PATH))
+print("📦 Contents of current dir:", os.listdir())
 
 # Load vectors from database
 def load_embeddings():
