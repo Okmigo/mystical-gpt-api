@@ -1,70 +1,66 @@
 # File: drive_search_api.py
 import os
-import io
 import json
-from flask import Flask, request, jsonify
-from google.oauth2 import service_account
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseDownload
-import fitz  # PyMuPDF
-
-# === CONFIGURATION ===
-FOLDER_ID = "1XtKZcNHAjCf_FNPJMPOwT8QfqbdD9uvW"
-SERVICE_ACCOUNT_FILE = "service_account.json"
-SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
+import numpy as np
+import sqlite3
+from flask import Flask, request, jsonify, send_file
+from sentence_transformers import SentenceTransformer
 
 app = Flask(__name__)
+model = SentenceTransformer('all-MiniLM-L6-v2')
 
-# === Authenticate with Google Drive API ===
-credentials = service_account.Credentials.from_service_account_file(
-    SERVICE_ACCOUNT_FILE, scopes=SCOPES
-)
-drive_service = build("drive", "v3", credentials=credentials)
+DB_PATH = 'embeddings.db'
 
-# === Utility: Download and extract PDF text ===
-def extract_text_from_drive_file(file_id):
-    request = drive_service.files().get_media(fileId=file_id)
-    fh = io.BytesIO()
-    downloader = MediaIoBaseDownload(fh, request)
-    done = False
-    while not done:
-        _, done = downloader.next_chunk()
-    fh.seek(0)
-    try:
-        doc = fitz.open(stream=fh.read(), filetype="pdf")
-        text = "\n".join([page.get_text() for page in doc])
-        return text[:5000]  # Limit for performance
-    except Exception as e:
-        return f"[Error reading PDF: {str(e)}]"
+def init_db():
+    if not os.path.exists(DB_PATH):
+        raise FileNotFoundError("Database not found. Please generate 'embeddings.db' before running the API.")
 
-# === Route: Search files in Google Drive ===
-@app.route("/search", methods=["POST"])
-def search_drive():
-    query = request.json.get("query", "").lower()
+def load_embeddings():
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, title, url, text, embedding FROM documents")
+    data = []
+    for row in cursor.fetchall():
+        doc_id, title, url, text, emb_str = row
+        embedding = np.fromstring(emb_str, sep=',')
+        data.append({
+            'id': doc_id,
+            'title': title,
+            'url': url,
+            'text': text,
+            'embedding': embedding
+        })
+    conn.close()
+    return data
+
+init_db()
+data = load_embeddings()
+corpus_embeddings = np.array([doc['embedding'] for doc in data])
+
+@app.route('/search', methods=['POST'])
+def search():
+    query = request.json.get('query', '')
     if not query:
-        return jsonify({"error": "Query is required"}), 400
+        return jsonify({'error': 'Missing query'}), 400
+
+    query_vec = model.encode(query)
+    scores = np.dot(corpus_embeddings, query_vec)
+    top_idx = np.argsort(scores)[::-1][:5]
 
     results = []
-    response = (
-        drive_service.files()
-        .list(q=f"'{FOLDER_ID}' in parents and mimeType='application/pdf'",
-              fields="files(id, name)")
-        .execute()
-    )
-    files = response.get("files", [])
-
-    for f in files:
-        text = extract_text_from_drive_file(f["id"]).lower()
-        if query in text:
-            snippet_index = text.find(query)
-            snippet = text[snippet_index:snippet_index + 300]
-            results.append({
-                "title": f["name"],
-                "url": f"https://drive.google.com/file/d/{f['id']}/view",
-                "snippet": snippet
-            })
-
+    for i in top_idx:
+        doc = data[i]
+        results.append({
+            'title': doc['title'],
+            'url': doc['url'],
+            'score': float(scores[i]),
+            'snippet': doc['text'][:500] + '...'
+        })
     return jsonify(results)
 
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8080)
+@app.route('/openapi.yaml')
+def serve_openapi_yaml():
+    return send_file('openapi.yaml', mimetype='text/yaml')
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=8080)
