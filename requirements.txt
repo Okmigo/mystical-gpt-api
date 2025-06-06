@@ -1,4 +1,4 @@
-flask
-numpy
-sentence-transformers
-psycopg2-binary
+Flask
+google-api-python-client
+google-auth
+PyMuPDF
