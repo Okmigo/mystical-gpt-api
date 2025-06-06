@@ -11,8 +11,8 @@ app = Flask(__name__)
 model = SentenceTransformer('all-MiniLM-L6-v2')
 
 # Google Cloud Storage public URL to embeddings file
-GCS_URL = 'https://storage.googleapis.com/mystical-gpt-bucket/embeddings.db'
-DB_PATH = 'embeddings.db'
+GCS_URL = 'https://storage.googleapis.com/mystical-gpt-bucket/embeddings.db.json'
+DB_PATH = 'embeddings.db.json'
 
 # Download from GCS if missing
 def download_embeddings():
@@ -77,15 +77,3 @@ def search():
 
     except Exception as e:
         print(f"❌ Exception in /search: {e}")
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/openapi.yaml')
-def serve_openapi_yaml():
-    return send_file('docs/openapi.yaml', mimetype='text/yaml')
-
-@app.route('/ping')
-def ping():
-    return '✅ API is alive!'
-
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=8080)
