@@ -1,4 +1,5 @@
 flask
 sentence-transformers
 numpy
+gunicorn
 requests
