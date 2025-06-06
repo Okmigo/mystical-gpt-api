@@ -8,7 +8,9 @@ from flask import Flask, request, jsonify, send_file
 from sentence_transformers import SentenceTransformer
 
 app = Flask(__name__)
+print("🔄 Initializing SentenceTransformer...")
 model = SentenceTransformer('all-MiniLM-L6-v2')
+print("✅ Model loaded.")
 
 GCS_URL = 'https://storage.googleapis.com/mystical-gpt-bucket/embeddings.db'
 DB_PATH = 'embeddings.db'
@@ -44,9 +46,11 @@ def load_embeddings():
     return data
 
 try:
+    print("🔄 Downloading and loading embeddings...")
     download_embeddings()
     data = load_embeddings()
     corpus_embeddings = np.array([doc['embedding'] for doc in data])
+    print("✅ Embeddings ready.")
 except Exception as e:
     print(f"❌ Failed to load embeddings: {e}")
     data = []
@@ -93,11 +97,9 @@ def ping():
 def create_app():
     return app
 
-# Required by Cloud Run
 if __name__ != '__main__':
     gunicorn_app = app
 
-# Local run fallback
 if __name__ == '__main__':
     print("📢 Running Flask development server...")
     port = int(os.environ.get("PORT", 8080))
