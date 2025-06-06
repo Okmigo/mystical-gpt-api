@@ -1,4 +1,4 @@
-# File: drive_search_api.py
+# File: main.py
 import os
 import json
 import numpy as np
@@ -89,6 +89,7 @@ def serve_openapi_yaml():
 def ping():
     return '✅ API is alive!'
 
+# Required by Cloud Run's Python Buildpack
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 8080))
     app.run(host='0.0.0.0', port=port)
