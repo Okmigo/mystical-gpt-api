@@ -1,0 +1,36 @@
+openapi: 3.0.0
+info:
+  title: Mystical GPT Drive Search
+  version: 1.0.0
+paths:
+  /search:
+    post:
+      summary: Search documents
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                query:
+                  type: string
+                  description: The keyword or question to search for
+      responses:
+        '200':
+          description: A list of search results
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    title:
+                      type: string
+                    url:
+                      type: string
+                    score:
+                      type: number
+                    snippet:
+                      type: string
