@@ -9,12 +9,15 @@ from sentence_transformers import SentenceTransformer
 app = Flask(__name__)
 model = SentenceTransformer('all-MiniLM-L6-v2')
 
+# SQLite DB path
 DB_PATH = 'embeddings.db'
 
+# Create and initialize database if it doesn't exist
 def init_db():
     if not os.path.exists(DB_PATH):
         raise FileNotFoundError("Database not found. Please generate 'embeddings.db' before running the API.")
 
+# Load vectors from database
 def load_embeddings():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
@@ -60,7 +63,7 @@ def search():
 
 @app.route('/openapi.yaml')
 def serve_openapi_yaml():
-    return send_file('openapi.yaml', mimetype='text/yaml')
+    return send_file('docs/openapi.yaml', mimetype='text/yaml')
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8080)
