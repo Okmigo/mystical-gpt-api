@@ -3,19 +3,25 @@ import os
 import json
 import numpy as np
 import sqlite3
+import requests
 from flask import Flask, request, jsonify, send_file
 from sentence_transformers import SentenceTransformer
 
 app = Flask(__name__)
 model = SentenceTransformer('all-MiniLM-L6-v2')
 
-# SQLite DB path
+# Google Cloud Storage public URL to embeddings file
+GCS_URL = 'https://storage.googleapis.com/mystical-gpt-bucket/embeddings.db'
 DB_PATH = 'embeddings.db'
 
-# Create and initialize database if it doesn't exist
-def init_db():
+# Download from GCS if missing
+def download_embeddings():
     if not os.path.exists(DB_PATH):
-        raise FileNotFoundError("Database not found. Please generate 'embeddings.db' before running the API.")
+        print(f"⬇ Downloading {DB_PATH} from {GCS_URL}...")
+        r = requests.get(GCS_URL)
+        with open(DB_PATH, 'wb') as f:
+            f.write(r.content)
+        print("✅ Download complete.")
 
 # Load vectors from database
 def load_embeddings():
@@ -36,34 +42,50 @@ def load_embeddings():
     conn.close()
     return data
 
-init_db()
-data = load_embeddings()
-corpus_embeddings = np.array([doc['embedding'] for doc in data])
+# Initialization
+try:
+    download_embeddings()
+    data = load_embeddings()
+    corpus_embeddings = np.array([doc['embedding'] for doc in data])
+except Exception as e:
+    print(f"❌ Failed to load embeddings: {e}")
+    data = []
+    corpus_embeddings = np.array([])
 
 @app.route('/search', methods=['POST'])
 def search():
-    query = request.json.get('query', '')
-    if not query:
-        return jsonify({'error': 'Missing query'}), 400
+    try:
+        body = request.get_json()
+        query = body.get('query', '')
+        if not query:
+            return jsonify({'error': 'Missing query'}), 400
 
-    query_vec = model.encode(query)
-    scores = np.dot(corpus_embeddings, query_vec)
-    top_idx = np.argsort(scores)[::-1][:5]
+        query_vec = model.encode(query)
+        scores = np.dot(corpus_embeddings, query_vec)
+        top_idx = np.argsort(scores)[::-1][:5]
 
-    results = []
-    for i in top_idx:
-        doc = data[i]
-        results.append({
-            'title': doc['title'],
-            'url': doc['url'],
-            'score': float(scores[i]),
-            'snippet': doc['text'][:500] + '...'
-        })
-    return jsonify(results)
+        results = []
+        for i in top_idx:
+            doc = data[i]
+            results.append({
+                'title': doc['title'],
+                'url': doc['url'],
+                'score': float(scores[i]),
+                'snippet': doc['text'][:500] + '...'
+            })
+        return jsonify(results)
+
+    except Exception as e:
+        print(f"❌ Exception in /search: {e}")
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/openapi.yaml')
 def serve_openapi_yaml():
     return send_file('docs/openapi.yaml', mimetype='text/yaml')
+
+@app.route('/ping')
+def ping():
+    return '✅ API is alive!'
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8080)
