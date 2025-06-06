@@ -14,6 +14,7 @@ model = SentenceTransformer('all-MiniLM-L6-v2')
 GCS_URL = 'https://storage.googleapis.com/mystical-gpt-bucket/embeddings.db'
 DB_PATH = 'embeddings.db'
 
+
 # Download from GCS if missing
 def download_embeddings():
     if not os.path.exists(DB_PATH):
