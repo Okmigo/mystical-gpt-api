@@ -1,5 +1,5 @@
 flask
+gunicorn>=20.1.0
 sentence-transformers
 numpy
-gunicorn
 requests
