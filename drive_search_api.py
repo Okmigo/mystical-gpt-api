@@ -11,8 +11,8 @@ app = Flask(__name__)
 model = SentenceTransformer('all-MiniLM-L6-v2')
 
 # Google Cloud Storage public URL to embeddings file
-GCS_URL = 'https://storage.googleapis.com/mystical-gpt-bucket/embeddings.db.json'
-DB_PATH = 'embeddings.db.json'
+GCS_URL = 'https://storage.googleapis.com/mystical-gpt-bucket/embeddings.db'
+DB_PATH = 'embeddings.db'
 
 # Download from GCS if missing
 def download_embeddings():
