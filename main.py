@@ -10,7 +10,6 @@ from sentence_transformers import SentenceTransformer
 app = Flask(__name__)
 model = SentenceTransformer('all-MiniLM-L6-v2')
 
-# Google Cloud Storage public URL to embeddings file
 GCS_URL = 'https://storage.googleapis.com/mystical-gpt-bucket/embeddings.db'
 DB_PATH = 'embeddings.db'
 
@@ -44,7 +43,6 @@ def load_embeddings():
     conn.close()
     return data
 
-# Initialization
 try:
     download_embeddings()
     data = load_embeddings()
@@ -83,13 +81,24 @@ def search():
 
 @app.route('/openapi.yaml')
 def serve_openapi_yaml():
-    return send_file('docs/openapi.yaml', mimetype='text/yaml')
+    try:
+        return send_file('docs/openapi.yaml', mimetype='text/yaml')
+    except Exception as e:
+        return jsonify({'error': f'Missing openapi.yaml: {e}'}), 500
 
 @app.route('/ping')
 def ping():
     return '✅ API is alive!'
 
-# Required by Cloud Run's Python Buildpack
+def create_app():
+    return app
+
+# Required by Cloud Run
+if __name__ != '__main__':
+    gunicorn_app = app
+
+# Local run fallback
 if __name__ == '__main__':
+    print("📢 Running Flask development server...")
     port = int(os.environ.get("PORT", 8080))
     app.run(host='0.0.0.0', port=port)
