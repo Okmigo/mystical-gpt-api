@@ -3,3 +3,9 @@ gunicorn>=20.1.0
 sentence-transformers
 numpy
 requests
+fastapi
+uvicorn
+openai
+langchain
+faiss-cpu
+
