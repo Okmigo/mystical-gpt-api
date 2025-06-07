@@ -1,5 +1,6 @@
 import os
 import json
+import requests
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -8,7 +9,6 @@ from langchain.embeddings.openai import OpenAIEmbeddings
 from langchain.chains import RetrievalQA
 from langchain.chat_models import ChatOpenAI
 from langchain.prompts import PromptTemplate
-import shutil
 
 app = FastAPI()
 
@@ -24,6 +24,17 @@ app.add_middleware(
 class QueryRequest(BaseModel):
     query: str
 
+# Download embeddings.db from public GCS if not already present
+EMBEDDINGS_PATH = "embeddings.db"
+EMBEDDINGS_URL = "https://storage.googleapis.com/mystical-gpt-bucket/embeddings.db"
+
+if not os.path.exists(EMBEDDINGS_PATH):
+    print("Downloading embeddings.db from public GCS...")
+    response = requests.get(EMBEDDINGS_URL)
+    with open(EMBEDDINGS_PATH, "wb") as f:
+        f.write(response.content)
+    print("Download complete.")
+
 @app.post("/search")
 async def search_docs(req: QueryRequest):
     query = req.query.strip()
@@ -31,7 +42,7 @@ async def search_docs(req: QueryRequest):
         return {"error": "Empty query"}
 
     try:
-        db = FAISS.load_local("embeddings.db", OpenAIEmbeddings(), allow_dangerous_deserialization=True)
+        db = FAISS.load_local(EMBEDDINGS_PATH, OpenAIEmbeddings(), allow_dangerous_deserialization=True)
         retriever = db.as_retriever(search_type="similarity", search_kwargs={"k": 4})
 
         prompt = PromptTemplate(
