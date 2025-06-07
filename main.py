@@ -1,96 +1,72 @@
-# File: main.py
-
 import os
 import json
-import numpy as np
-import sqlite3
-import requests
-from flask import Flask, request, jsonify, send_file
-from sentence_transformers import SentenceTransformer
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from langchain.vectorstores import FAISS
+from langchain.embeddings.openai import OpenAIEmbeddings
+from langchain.chains import RetrievalQA
+from langchain.chat_models import ChatOpenAI
+from langchain.prompts import PromptTemplate
+import shutil
 
-app = Flask(__name__)
-model = SentenceTransformer('all-MiniLM-L6-v2')
+app = FastAPI()
 
-GCS_URL = 'https://storage.googleapis.com/mystical-gpt-bucket/embeddings.db'
-DB_PATH = 'embeddings.db'
+origins = ["*"]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-def download_embeddings():
-    if not os.path.exists(DB_PATH):
-        print(f"⬇ Downloading {DB_PATH} from {GCS_URL}...")
-        r = requests.get(GCS_URL)
-        with open(DB_PATH, 'wb') as f:
-            f.write(r.content)
-        print("✅ Download complete.")
-    print(f"💾 Checking if {DB_PATH} exists:", os.path.exists(DB_PATH))
-    print("📦 Directory contents:", os.listdir())
+class QueryRequest(BaseModel):
+    query: str
 
-def load_embeddings():
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("SELECT id, title, url, text, embedding FROM documents")
-    data = []
-    for row in cursor.fetchall():
-        doc_id, title, url, text, emb_str = row
-        embedding = np.fromstring(emb_str, sep=',')
-        data.append({
-            'id': doc_id,
-            'title': title,
-            'url': url,
-            'text': text,
-            'embedding': embedding
-        })
-    conn.close()
-    return data
+@app.post("/search")
+async def search_docs(req: QueryRequest):
+    query = req.query.strip()
+    if not query:
+        return {"error": "Empty query"}
 
-try:
-    download_embeddings()
-    data = load_embeddings()
-    corpus_embeddings = np.array([doc['embedding'] for doc in data])
-except Exception as e:
-    print(f"❌ Failed to load embeddings: {e}")
-    data = []
-    corpus_embeddings = np.array([])
-
-@app.route('/search', methods=['POST'])
-def search():
     try:
-        body = request.get_json()
-        query = body.get('query', '')
-        if not query:
-            return jsonify({'error': 'Missing query'}), 400
+        db = FAISS.load_local("embeddings.db", OpenAIEmbeddings(), allow_dangerous_deserialization=True)
+        retriever = db.as_retriever(search_type="similarity", search_kwargs={"k": 4})
 
-        query_vec = model.encode(query)
-        scores = np.dot(corpus_embeddings, query_vec)
-        top_idx = np.argsort(scores)[::-1][:5]
+        prompt = PromptTemplate(
+            input_variables=["context", "question"],
+            template="""
+You are a helpful AI assistant. Use the following context to answer the question at the end.
+Include only the most relevant direct quotations. Do not include any document titles, links, or citations.
 
-        results = []
-        for i in top_idx:
-            doc = data[i]
-            results.append({
-                'title': doc['title'],
-                'url': doc['url'],
-                'score': float(scores[i]),
-                'snippet': doc['text'][:500] + '...'
-            })
-        return jsonify(results)
+Context:
+{context}
+
+Question:
+{question}
+
+Answer:"""
+        )
+
+        chain = RetrievalQA.from_chain_type(
+            llm=ChatOpenAI(temperature=0),
+            chain_type="stuff",
+            retriever=retriever,
+            chain_type_kwargs={"prompt": prompt},
+            return_source_documents=False
+        )
+
+        result = chain({"query": query})
+        return {"answer": result.get("result", "No result found")}
+
     except Exception as e:
-        print(f"❌ Exception in /search: {e}")
-        return jsonify({'error': str(e)}), 500
+        return {"error": str(e)}
 
-@app.route('/openapi.yaml')
-def serve_openapi_yaml():
-    return send_file('docs/openapi.yaml', mimetype='text/yaml')
+@app.get("/ping")
+async def ping():
+    return {"message": "pong"}
 
-@app.route('/ping')
-def ping():
-    return '✅ API is alive!'
-
-if __name__ == '__main__':
-    from gunicorn.app.base import BaseApplication
-
-    class GunicornApp(BaseApplication):
-        def load_config(self): pass
-        def load(self): return app
-
-    print("🔧 Starting Gunicorn...")
-    GunicornApp().run()
+@app.get("/")
+async def root():
+    return {"message": "Mystical GPT API is live."}
