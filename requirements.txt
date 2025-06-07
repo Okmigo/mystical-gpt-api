@@ -1,0 +1,7 @@
+fastapi
+uvicorn
+openai
+langchain
+faiss-cpu
+tiktoken
+requests
