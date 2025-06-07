@@ -8,4 +8,5 @@ uvicorn
 openai
 langchain
 faiss-cpu
+google-cloud-storage
 
