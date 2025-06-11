@@ -1,0 +1,34 @@
+#!/bin/bash
+
+set -e
+
+echo "🧹 [1] Cleaning local pycache, .db, and temp files..."
+find . -type f \( -name "*.pyc" -o -name "*.db" \) -delete
+find . -type d -name "__pycache__" -exec rm -r {} +
+rm -rf build dist *.egg-info || true
+
+echo "🧹 [2] Deleting older Docker images in Artifact Registry (except most recent)..."
+IMAGE_PATH="us-central1-docker.pkg.dev/corded-nature-462101-b4/gcf-artifacts/corded--nature--462101--b4__us--central1__embed_and_deploy"
+ALL_DIGESTS=$(gcloud artifacts docker images list $IMAGE_PATH --sort-by=~UPDATE_TIME --format="value(digest)")
+SKIP_FIRST=true
+for digest in $ALL_DIGESTS; do
+    if $SKIP_FIRST; then
+        echo "🔐 Keeping latest: $digest"
+        SKIP_FIRST=false
+        continue
+    fi
+    echo "🗑️ Deleting image digest: $digest"
+    gcloud artifacts docker images delete "$IMAGE_PATH@$digest" --quiet
+done
+
+echo "🧹 [3] Deleting old Cloud Builds (older than 7 days)..."
+gcloud builds list --format="value(ID,createTime)" | while read id time; do
+  if [[ "$time" < "$(date -d '7 days ago' --iso-8601=seconds)" ]]; then
+    echo "🗑️ Deleting build: $id"
+    gcloud builds delete "$id" --quiet
+  fi
+done
+
+echo "🧹 [4] Optional: Remove stale files from GCS bucket (manual step advised)"
+echo "Run this to preview:"
+echo "  gsutil ls -l gs://mystical-gpt-bucket/"
