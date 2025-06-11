@@ -1,5 +1,5 @@
+sentence-transformers
+pymupdf
 google-cloud-storage
 google-api-python-client
 google-auth
-pymupdf
-sentence-transformers    
