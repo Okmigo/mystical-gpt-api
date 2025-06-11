@@ -2,4 +2,4 @@ google-api-python-client
 google-cloud-storage
 google-auth
 sentence-transformers
-pymupdf
+PyMuPDF
