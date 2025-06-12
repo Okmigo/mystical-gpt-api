@@ -21,17 +21,23 @@ def calculate_md5(file_path):
 
 def generate_embeddings():
     print("[⚙️] Generating embeddings and creating database at:", TMP_DB_PATH)
-    with sqlite3.connect(TMP_DB_PATH) as conn:
-        cursor = conn.cursor()
-        cursor.execute("CREATE TABLE IF NOT EXISTS dummy (id INTEGER PRIMARY KEY, content TEXT)")
-        cursor.execute("INSERT INTO dummy (content) VALUES (?)", ("Example embedding",))
-        conn.commit()
+    try:
+        with sqlite3.connect(TMP_DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute("CREATE TABLE IF NOT EXISTS dummy (id INTEGER PRIMARY KEY, content TEXT)")
+            cursor.execute("INSERT INTO dummy (content) VALUES (?)", ("Example embedding",))
+            conn.commit()
+        print("[✓] Database created successfully.")
+    except Exception as e:
+        print(f"[❌] Failed to generate embeddings: {e}")
+        raise
 
 def embed_and_upload():
     generate_embeddings()
 
     if not os.path.exists(TMP_DB_PATH):
-        raise FileNotFoundError(f"[❌] Database file not found at {TMP_DB_PATH}")
+        print(f"[❌] File not found even after generate_embeddings: {TMP_DB_PATH}")
+        raise FileNotFoundError(f"Database file missing: {TMP_DB_PATH}")
 
     credentials = get_service_account_credentials()
     client = storage.Client(project="corded-nature-462101-b4", credentials=credentials)
