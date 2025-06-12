@@ -16,10 +16,9 @@ def get_service_account_credentials():
 
 def calculate_md5(file_path):
     with open(file_path, "rb") as f:
-        return hashlib.md5(f.read()).hexdigest()
+        return hashlib.md5(f.read()).digest()
 
 def generate_embeddings():
-    # Placeholder for actual embedding logic
     with sqlite3.connect("embeddings.db") as conn:
         cursor = conn.cursor()
         cursor.execute("CREATE TABLE IF NOT EXISTS dummy (id INTEGER PRIMARY KEY, content TEXT)")
@@ -34,14 +33,14 @@ def embed_and_upload():
     bucket = client.bucket("mystical-gpt-bucket")
     blob = bucket.blob("embeddings.db")
 
-    local_md5 = calculate_md5("embeddings.db")
+    local_md5_b64 = base64.b64encode(calculate_md5("embeddings.db")).decode('utf-8')
 
     remote_md5 = None
     if blob.exists():
         blob.reload()
         remote_md5 = blob.md5_hash
 
-    if remote_md5 and remote_md5 == blob._get_md5_hash(local_md5):
+    if remote_md5 and remote_md5 == local_md5_b64:
         print("[⏭] Skipping upload and rebuild: embeddings.db unchanged")
         return False
 
