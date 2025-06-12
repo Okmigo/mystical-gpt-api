@@ -5,3 +5,4 @@ google-cloud-storage
 google-auth
 sentence-transformers
 functions-framework
+google-cloud-secret-manager
