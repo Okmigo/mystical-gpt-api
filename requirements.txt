@@ -3,3 +3,5 @@ google-cloud-storage
 google-auth
 sentence-transformers
 PyMuPDF
+functions-framework
+
