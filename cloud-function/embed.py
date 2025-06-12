@@ -7,7 +7,6 @@ from google.oauth2 import service_account
 
 TMP_DB_PATH = "/tmp/embeddings.db"
 
-
 def get_service_account_credentials():
     secret_client = secretmanager.SecretManagerServiceClient()
     secret_name = "projects/corded-nature-462101-b4/secrets/my-service-account-key/versions/latest"
@@ -16,22 +15,23 @@ def get_service_account_credentials():
     service_account_info = json.loads(payload)
     return service_account.Credentials.from_service_account_info(service_account_info)
 
-
 def calculate_md5(file_path):
     with open(file_path, "rb") as f:
         return hashlib.md5(f.read()).hexdigest()
 
-
 def generate_embeddings():
+    print("[⚙️] Generating embeddings and creating database at:", TMP_DB_PATH)
     with sqlite3.connect(TMP_DB_PATH) as conn:
         cursor = conn.cursor()
         cursor.execute("CREATE TABLE IF NOT EXISTS dummy (id INTEGER PRIMARY KEY, content TEXT)")
         cursor.execute("INSERT INTO dummy (content) VALUES (?)", ("Example embedding",))
         conn.commit()
 
-
 def embed_and_upload():
     generate_embeddings()
+
+    if not os.path.exists(TMP_DB_PATH):
+        raise FileNotFoundError(f"[❌] Database file not found at {TMP_DB_PATH}")
 
     credentials = get_service_account_credentials()
     client = storage.Client(project="corded-nature-462101-b4", credentials=credentials)
@@ -53,10 +53,10 @@ def embed_and_upload():
     print("[✓] Uploaded embeddings.db to GCS")
     return True
 
-
 def main(request):
     try:
         updated = embed_and_upload()
         return ("Success" if updated else "Skipped", 200)
     except Exception as e:
+        print(f"[❌] Exception: {str(e)}")
         return (f"Error: {str(e)}", 500)
