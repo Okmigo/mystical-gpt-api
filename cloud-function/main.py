@@ -2,22 +2,26 @@ import os
 import json
 import subprocess
 import hashlib
-from google.cloud import storage
+from google.cloud import storage, secretmanager
 from google.oauth2 import service_account
 from datetime import datetime
-import google.auth
-from googleapiclient.discovery import build
+
+def get_service_account_credentials():
+    secret_client = secretmanager.SecretManagerServiceClient()
+    secret_name = "projects/corded-nature-462101-b4/secrets/my-service-account-key/versions/latest"
+    response = secret_client.access_secret_version(request={"name": secret_name})
+    payload = response.payload.data.decode("UTF-8")
+    service_account_info = json.loads(payload)
+    return service_account.Credentials.from_service_account_info(service_account_info)
 
 def calculate_md5(file_path):
     with open(file_path, "rb") as f:
         return hashlib.md5(f.read()).hexdigest()
 
 def embed_and_upload():
-    # Generate embeddings.db using local embed.py
     subprocess.run(["python3", "embed.py"], check=True)
 
-    # Compare hash to previous uploaded file
-    credentials = service_account.Credentials.from_service_account_file("service_account.json")
+    credentials = get_service_account_credentials()
     client = storage.Client(credentials=credentials)
     bucket = client.bucket("mystical-gpt-bucket")
     blob = bucket.blob("embeddings.db")
@@ -26,7 +30,7 @@ def embed_and_upload():
     remote_md5 = None
     if blob.exists():
         blob.reload()
-        remote_md5 = blob.md5_hash  # base64 encoded
+        remote_md5 = blob.md5_hash
 
     if remote_md5 and remote_md5 == blob._get_md5_hash(local_md5):
         print("[⏭] Skipping upload and rebuild: embeddings.db unchanged")
