@@ -6,7 +6,6 @@ import sqlite3
 from google.cloud import storage, secretmanager
 from google.oauth2 import service_account
 
-
 def get_service_account_credentials():
     secret_client = secretmanager.SecretManagerServiceClient()
     secret_name = "projects/corded-nature-462101-b4/secrets/my-service-account-key/versions/latest"
@@ -15,14 +14,20 @@ def get_service_account_credentials():
     service_account_info = json.loads(payload)
     return service_account.Credentials.from_service_account_info(service_account_info)
 
-
 def calculate_md5(file_path):
     with open(file_path, "rb") as f:
         return hashlib.md5(f.read()).hexdigest()
 
+def generate_embeddings():
+    # Placeholder for actual embedding logic
+    with sqlite3.connect("embeddings.db") as conn:
+        cursor = conn.cursor()
+        cursor.execute("CREATE TABLE IF NOT EXISTS dummy (id INTEGER PRIMARY KEY, content TEXT)")
+        cursor.execute("INSERT INTO dummy (content) VALUES (?)", ("Example embedding",))
+        conn.commit()
 
 def embed_and_upload():
-    os.system("python3 embed.py")
+    generate_embeddings()
 
     credentials = get_service_account_credentials()
     client = storage.Client(credentials=credentials)
@@ -43,7 +48,6 @@ def embed_and_upload():
     blob.upload_from_filename("embeddings.db")
     print("[✓] Uploaded embeddings.db to GCS")
     return True
-
 
 def main(request):
     try:
