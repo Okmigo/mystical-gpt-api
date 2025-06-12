@@ -1,6 +1,5 @@
 import os
 import json
-import base64
 import hashlib
 import sqlite3
 from google.cloud import storage, secretmanager
@@ -19,7 +18,6 @@ def calculate_md5(file_path):
         return hashlib.md5(f.read()).hexdigest()
 
 def generate_embeddings():
-    # Placeholder for actual embedding logic
     with sqlite3.connect("embeddings.db") as conn:
         cursor = conn.cursor()
         cursor.execute("CREATE TABLE IF NOT EXISTS dummy (id INTEGER PRIMARY KEY, content TEXT)")
