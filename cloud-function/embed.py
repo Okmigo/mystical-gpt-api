@@ -1,93 +1,53 @@
-# embed.py — Local Embedding Builder (No OpenAI API Required)
-
-# ✅ STEP 1: Install dependencies (run only once)
-# pip install pymupdf sentence-transformers google-api-python-client
-
-import os, json, sqlite3, fitz
-from io import BytesIO
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseDownload
-from sentence_transformers import SentenceTransformer
-
-# 📁 Google Drive API auth (service account file required)
+import os
+import json
+import base64
+import hashlib
+import sqlite3
+from google.cloud import storage, secretmanager
 from google.oauth2 import service_account
-creds = service_account.Credentials.from_service_account_file('service_account.json', scopes=["https://www.googleapis.com/auth/drive"])
-drive_service = build('drive', 'v3', credentials=creds)
-FOLDER_ID = '1XtKZcNHAjCf_FNPJMPOwT8QfqbdD9uvW'  # update if needed
 
-# 🔤 Load local model for embeddings
-model = SentenceTransformer('all-MiniLM-L6-v2')
 
-# 📄 Fetch PDF file list
-results = drive_service.files().list(
-    q=f"'{FOLDER_ID}' in parents and trashed=false and mimeType='application/pdf'",
-    fields="files(id, name)"
-).execute()
-files_list = results.get('files', [])
+def get_service_account_credentials():
+    secret_client = secretmanager.SecretManagerServiceClient()
+    secret_name = "projects/corded-nature-462101-b4/secrets/my-service-account-key/versions/latest"
+    response = secret_client.access_secret_version(request={"name": secret_name})
+    payload = response.payload.data.decode("UTF-8")
+    service_account_info = json.loads(payload)
+    return service_account.Credentials.from_service_account_info(service_account_info)
 
-# 📚 Extract and embed
-docs = []
-for f in files_list:
-    print("📄 Downloading:", f["name"])
+
+def calculate_md5(file_path):
+    with open(file_path, "rb") as f:
+        return hashlib.md5(f.read()).hexdigest()
+
+
+def embed_and_upload():
+    os.system("python3 embed.py")
+
+    credentials = get_service_account_credentials()
+    client = storage.Client(credentials=credentials)
+    bucket = client.bucket("mystical-gpt-bucket")
+    blob = bucket.blob("embeddings.db")
+
+    local_md5 = calculate_md5("embeddings.db")
+
+    remote_md5 = None
+    if blob.exists():
+        blob.reload()
+        remote_md5 = blob.md5_hash
+
+    if remote_md5 and remote_md5 == blob._get_md5_hash(local_md5):
+        print("[⏭] Skipping upload and rebuild: embeddings.db unchanged")
+        return False
+
+    blob.upload_from_filename("embeddings.db")
+    print("[✓] Uploaded embeddings.db to GCS")
+    return True
+
+
+def main(request):
     try:
-        request = drive_service.files().get_media(fileId=f["id"])
-        fh = BytesIO()
-        downloader = MediaIoBaseDownload(fh, request)
-        done = False
-        while not done:
-            status, done = downloader.next_chunk()
-
-        # Extract text
-        doc_text = ""
-        with fitz.open(stream=fh.getvalue(), filetype="pdf") as pdf:
-            for page in pdf:
-                doc_text += page.get_text()
-
-        trimmed = doc_text[:8000]
-        embedding = model.encode(trimmed).tolist()
-
-        docs.append({
-            "id": f["id"],
-            "title": f["name"],
-            "url": f"https://drive.google.com/file/d/{f['id']}/view?usp=drivesdk",
-            "text": trimmed,
-            "embedding": embedding
-        })
-
+        updated = embed_and_upload()
+        return ("Success" if updated else "Skipped", 200)
     except Exception as e:
-        print("❌ Skipped:", f["name"], e)
-
-# 💾 Save to embeddings.json
-with open("embeddings.json", "w") as f:
-    json.dump(docs, f, indent=2)
-
-# 💾 Save to SQLite
-conn = sqlite3.connect("embeddings.db")
-cursor = conn.cursor()
-cursor.execute("DROP TABLE IF EXISTS documents")
-cursor.execute("""
-CREATE TABLE documents (
-    id TEXT,
-    title TEXT,
-    url TEXT,
-    text TEXT,
-    embedding TEXT
-)
-""")
-
-for doc in docs:
-    cursor.execute("""
-        INSERT INTO documents (id, title, url, text, embedding)
-        VALUES (?, ?, ?, ?, ?)
-    """, (
-        doc["id"],
-        doc["title"],
-        doc["url"],
-        doc["text"],
-        ",".join(map(str, doc["embedding"]))
-    ))
-
-conn.commit()
-conn.close()
-
-print("✅ Done: embeddings.db and embeddings.json generated locally.")
+        return (f"Error: {str(e)}", 500)
