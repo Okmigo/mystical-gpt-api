@@ -1,0 +1,17 @@
+cat > .gcloudignore <<EOF
+# Ignore Python cache
+__pycache__/
+*.pyc
+
+# Ignore secrets and credentials
+service_account.json
+.env
+
+# Ignore local config
+*.log
+.DS_Store
+
+# Ignore git
+.git
+.gitignore
+EOF
