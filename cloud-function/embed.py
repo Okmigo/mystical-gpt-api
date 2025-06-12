@@ -5,6 +5,9 @@ import sqlite3
 from google.cloud import storage, secretmanager
 from google.oauth2 import service_account
 
+TMP_DB_PATH = "/tmp/embeddings.db"
+
+
 def get_service_account_credentials():
     secret_client = secretmanager.SecretManagerServiceClient()
     secret_name = "projects/corded-nature-462101-b4/secrets/my-service-account-key/versions/latest"
@@ -13,16 +16,19 @@ def get_service_account_credentials():
     service_account_info = json.loads(payload)
     return service_account.Credentials.from_service_account_info(service_account_info)
 
+
 def calculate_md5(file_path):
     with open(file_path, "rb") as f:
         return hashlib.md5(f.read()).hexdigest()
 
+
 def generate_embeddings():
-    with sqlite3.connect("embeddings.db") as conn:
+    with sqlite3.connect(TMP_DB_PATH) as conn:
         cursor = conn.cursor()
         cursor.execute("CREATE TABLE IF NOT EXISTS dummy (id INTEGER PRIMARY KEY, content TEXT)")
         cursor.execute("INSERT INTO dummy (content) VALUES (?)", ("Example embedding",))
         conn.commit()
+
 
 def embed_and_upload():
     generate_embeddings()
@@ -32,7 +38,7 @@ def embed_and_upload():
     bucket = client.bucket("mystical-gpt-bucket")
     blob = bucket.blob("embeddings.db")
 
-    local_md5 = calculate_md5("embeddings.db")
+    local_md5 = calculate_md5(TMP_DB_PATH)
 
     remote_md5 = None
     if blob.exists():
@@ -43,9 +49,10 @@ def embed_and_upload():
         print("[⏭] Skipping upload and rebuild: embeddings.db unchanged")
         return False
 
-    blob.upload_from_filename("embeddings.db")
+    blob.upload_from_filename(TMP_DB_PATH)
     print("[✓] Uploaded embeddings.db to GCS")
     return True
+
 
 def main(request):
     try:
