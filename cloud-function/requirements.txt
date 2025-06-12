@@ -1,6 +1,6 @@
-functions-framework
-PyMuPDF
+fastapi
 sentence-transformers
+PyMuPDF
 google-cloud-storage
 google-api-python-client
 google-auth
