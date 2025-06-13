@@ -5,7 +5,7 @@ import sqlite3
 from google.cloud import storage, secretmanager
 from google.oauth2 import service_account
 
-TMP_DB_PATH = "/tmp/embeddings.db"
+TMP_DB_PATH = "/workspace/embeddings.db"  # ✅ Fixed path for Gen2
 
 def get_service_account_credentials():
     secret_client = secretmanager.SecretManagerServiceClient()
@@ -29,7 +29,7 @@ def generate_embeddings():
             conn.commit()
         print("[✓] embeddings.db created")
     except Exception as e:
-        print(f"[❌] Failed to write to /tmp: {e}")
+        print(f"[❌] Failed to write to {TMP_DB_PATH}: {e}")
         raise
 
 def embed_and_upload():
