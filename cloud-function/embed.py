@@ -20,24 +20,24 @@ def calculate_md5(file_path):
         return hashlib.md5(f.read()).hexdigest()
 
 def generate_embeddings():
-    print("[⚙️] Generating embeddings and creating database at:", TMP_DB_PATH)
+    print(f"[⚙️] Creating database at: {TMP_DB_PATH}")
     try:
         with sqlite3.connect(TMP_DB_PATH) as conn:
             cursor = conn.cursor()
             cursor.execute("CREATE TABLE IF NOT EXISTS dummy (id INTEGER PRIMARY KEY, content TEXT)")
             cursor.execute("INSERT INTO dummy (content) VALUES (?)", ("Example embedding",))
             conn.commit()
-        print("[✓] Database created successfully.")
+        print("[✓] embeddings.db created")
     except Exception as e:
-        print(f"[❌] Failed to generate embeddings: {e}")
+        print(f"[❌] Failed to write to /tmp: {e}")
         raise
 
 def embed_and_upload():
     generate_embeddings()
 
     if not os.path.exists(TMP_DB_PATH):
-        print(f"[❌] File not found even after generate_embeddings: {TMP_DB_PATH}")
-        raise FileNotFoundError(f"Database file missing: {TMP_DB_PATH}")
+        print(f"[❌] File not found after generate_embeddings: {TMP_DB_PATH}")
+        raise FileNotFoundError("embeddings.db was not created")
 
     credentials = get_service_account_credentials()
     client = storage.Client(project="corded-nature-462101-b4", credentials=credentials)
@@ -52,7 +52,7 @@ def embed_and_upload():
         remote_md5 = blob.md5_hash
 
     if remote_md5 and remote_md5 == blob._get_md5_hash(local_md5):
-        print("[⏭] Skipping upload and rebuild: embeddings.db unchanged")
+        print("[⏭] Skipping upload: embeddings.db unchanged")
         return False
 
     blob.upload_from_filename(TMP_DB_PATH)
@@ -64,5 +64,5 @@ def main(request):
         updated = embed_and_upload()
         return ("Success" if updated else "Skipped", 200)
     except Exception as e:
-        print(f"[❌] Exception: {str(e)}")
-        return (f"Error: {str(e)}", 500)
+        print(f"[❌] Exception: {e}")
+        return (f"Error: {e}", 500)
