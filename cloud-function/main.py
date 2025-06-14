@@ -1,4 +1,5 @@
 import os
+import json
 import sqlite3
 import fitz  # PyMuPDF
 import tempfile
@@ -8,6 +9,7 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 from google.oauth2 import service_account
 from google.cloud import storage
+from google.cloud import secretmanager_v1 as secretmanager
 
 FOLDER_ID = "1XtKZcNHAjCf_FNPJMPOwT8QfqbdD9uvW"
 BUCKET_NAME = "mystical-gpt-bucket"
@@ -17,8 +19,20 @@ DB_PATH = "/tmp/embeddings.db"
 def get_credentials():
     return service_account.Credentials.from_service_account_file("service_account.json")
 
+
+def get_credentials():
+    project_id = "corded-nature-462101-b4"
+    secret_id = "my-service-account-key"
+    client = secretmanager.SecretManagerServiceClient()
+    name = f"projects/{project_id}/secrets/{secret_id}/versions/latest"
+    response = client.access_secret_version(request={"name": name})
+    service_account_info = json.loads(response.payload.data.decode("UTF-8"))
+    return service_account.Credentials.from_service_account_info(service_account_info)
+
+
 def get_drive_service():
     return build("drive", "v3", credentials=get_credentials())
+
 
 def download_pdf(file_id, out_path):
     service = get_drive_service()
@@ -33,6 +47,11 @@ def extract_text(path):
     doc = fitz.open(path)
     return "\\n".join([p.get_text() for p in doc])
 
+def extract_text(path):
+    doc = fitz.open(path)
+    return "\n".join([p.get_text() for p in doc])
+
+
 def embed_pdfs():
     creds = get_credentials()
     drive = get_drive_service()
@@ -45,6 +64,15 @@ def embed_pdfs():
     c = conn.cursor()
     c.execute("DROP TABLE IF EXISTS documents")
     c.execute(\"\"\"\n        CREATE TABLE documents (\n            id TEXT PRIMARY KEY,\n            title TEXT,\n            url TEXT,\n            text TEXT,\n            embedding TEXT\n        )\n    \"\"\")
+    c.execute("""
+        CREATE TABLE documents (
+            id TEXT PRIMARY KEY,
+            title TEXT,
+            url TEXT,
+            text TEXT,
+            embedding TEXT
+        )
+    """)
 
     for f in files:
         file_id, name = f["id"], f["name"]
