@@ -1,69 +1,74 @@
 import os
-import json
-import subprocess
-import hashlib
-from google.cloud import storage, secretmanager
+import sqlite3
+import fitz  # PyMuPDF
+import tempfile
+from flask import jsonify
+from sentence_transformers import SentenceTransformer
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseDownload
 from google.oauth2 import service_account
-from datetime import datetime
+from google.cloud import storage
 
-def get_service_account_credentials():
-    secret_client = secretmanager.SecretManagerServiceClient()
-    secret_name = "projects/corded-nature-462101-b4/secrets/my-service-account-key/versions/latest"
-    response = secret_client.access_secret_version(request={"name": secret_name})
-    payload = response.payload.data.decode("UTF-8")
-    service_account_info = json.loads(payload)
-    return service_account.Credentials.from_service_account_info(service_account_info)
+FOLDER_ID = "1XtKZcNHAjCf_FNPJMPOwT8QfqbdD9uvW"
+BUCKET_NAME = "mystical-gpt-bucket"
+MODEL_NAME = "all-MiniLM-L6-v2"
+DB_PATH = "/tmp/embeddings.db"
 
-def calculate_md5(file_path):
-    with open(file_path, "rb") as f:
-        return hashlib.md5(f.read()).hexdigest()
+def get_credentials():
+    return service_account.Credentials.from_service_account_file("service_account.json")
 
-def embed_and_upload():
-    subprocess.run(["python3", "embed.py"], check=True)
+def get_drive_service():
+    return build("drive", "v3", credentials=get_credentials())
 
-    credentials = get_service_account_credentials()
-    client = storage.Client(credentials=credentials)
-    bucket = client.bucket("mystical-gpt-bucket")
+def download_pdf(file_id, out_path):
+    service = get_drive_service()
+    request = service.files().get_media(fileId=file_id)
+    with open(out_path, "wb") as f:
+        downloader = MediaIoBaseDownload(f, request)
+        done = False
+        while not done:
+            status, done = downloader.next_chunk()
+
+def extract_text(path):
+    doc = fitz.open(path)
+    return "\\n".join([p.get_text() for p in doc])
+
+def embed_pdfs():
+    creds = get_credentials()
+    drive = get_drive_service()
+    model = SentenceTransformer(MODEL_NAME)
+
+    query = f"'{FOLDER_ID}' in parents and mimeType='application/pdf' and trashed=false"
+    files = drive.files().list(q=query, fields="files(id, name)").execute().get("files", [])
+
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("DROP TABLE IF EXISTS documents")
+    c.execute(\"\"\"\n        CREATE TABLE documents (\n            id TEXT PRIMARY KEY,\n            title TEXT,\n            url TEXT,\n            text TEXT,\n            embedding TEXT\n        )\n    \"\"\")
+
+    for f in files:
+        file_id, name = f["id"], f["name"]
+        tmp_path = f"/tmp/{file_id}.pdf"
+        download_pdf(file_id, tmp_path)
+        text = extract_text(tmp_path)
+        vec = model.encode(text).tolist()
+        vec_str = ",".join(map(str, vec))
+        url = f"https://drive.google.com/file/d/{file_id}/view"
+        c.execute("INSERT INTO documents VALUES (?, ?, ?, ?, ?)", (file_id, name, url, text, vec_str))
+
+    conn.commit()
+    conn.close()
+
+def upload_to_bucket():
+    client = storage.Client(credentials=get_credentials())
+    bucket = client.bucket(BUCKET_NAME)
     blob = bucket.blob("embeddings.db")
-
-    local_md5 = calculate_md5("embeddings.db")
-    remote_md5 = None
-    if blob.exists():
-        blob.reload()
-        remote_md5 = blob.md5_hash
-
-    if remote_md5 and remote_md5 == blob._get_md5_hash(local_md5):
-        print("[⏭] Skipping upload and rebuild: embeddings.db unchanged")
-        return False
-
-    blob.upload_from_filename("embeddings.db")
-    print("[✓] Uploaded embeddings.db to GCS")
-    return True
-
-def trigger_rebuild():
-    subprocess.run([
-        "gcloud", "builds", "submit", "--tag", "gcr.io/corded-nature-462101-b4/mystical-gpt-api"
-    ], check=True)
-    print("[✓] Cloud Build submitted")
-
-    subprocess.run([
-        "gcloud", "run", "deploy", "mystical-gpt-api",
-        "--image", "gcr.io/corded-nature-462101-b4/mystical-gpt-api",
-        "--region", "europe-west1",
-        "--platform", "managed",
-        "--allow-unauthenticated",
-        "--timeout", "600",
-        "--memory", "2Gi"
-    ], check=True)
-    print("[✓] Cloud Run redeployed")
+    blob.upload_from_filename(DB_PATH)
 
 def main(request):
     try:
-        updated = embed_and_upload()
-        if updated:
-            trigger_rebuild()
-            return ("Success: embedding + redeploy complete", 200)
-        else:
-            return ("Skipped: embeddings.db not changed", 200)
+        embed_pdfs()
+        upload_to_bucket()
+        return jsonify({"status": "success", "message": "embeddings.db updated in GCS"})
     except Exception as e:
-        return (f"Error: {str(e)}", 500)
+        return jsonify({"status": "error", "message": str(e)}), 500
