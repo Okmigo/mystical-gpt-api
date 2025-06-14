@@ -16,7 +16,6 @@ BUCKET_NAME = "mystical-gpt-bucket"
 MODEL_PATH = "all-MiniLM-L6-v2"
 DB_PATH = "/tmp/embeddings.db"
 
-
 def get_secret():
     print("STEP: Fetching secret from Secret Manager")
     project_id = os.environ["GCP_PROJECT"]
@@ -27,10 +26,8 @@ def get_secret():
     service_account_info = json.loads(response.payload.data.decode("UTF-8"))
     return service_account.Credentials.from_service_account_info(service_account_info)
 
-
 def get_drive_service():
     return build("drive", "v3", credentials=get_secret())
-
 
 def download_pdf(file_id, out_path):
     service = get_drive_service()
@@ -41,11 +38,24 @@ def download_pdf(file_id, out_path):
         while not done:
             status, done = downloader.next_chunk()
 
-
 def extract_text(path):
     doc = fitz.open(path)
     return "\n".join([p.get_text() for p in doc])
 
+def chunk_text(text, max_tokens=500):
+    sentences = text.split('. ')
+    chunks, current = [], []
+    tokens = 0
+    for sentence in sentences:
+        sentence_tokens = len(sentence.split())
+        if tokens + sentence_tokens > max_tokens:
+            chunks.append(' '.join(current))
+            current, tokens = [], 0
+        current.append(sentence)
+        tokens += sentence_tokens
+    if current:
+        chunks.append(' '.join(current))
+    return chunks
 
 def embed_pdfs():
     creds = get_secret()
@@ -71,16 +81,17 @@ def embed_pdfs():
     for f in files:
         file_id, name = f["id"], f["name"]
         tmp_path = f"/tmp/{file_id}.pdf"
+        print(f"PROCESSING: {name}")
         download_pdf(file_id, tmp_path)
         text = extract_text(tmp_path)
-        vec = model.encode(text).tolist()
+        chunks = chunk_text(text)
+        vec = model.encode(chunks).mean(axis=0).tolist()
         vec_str = ",".join(map(str, vec))
         url = f"https://drive.google.com/file/d/{file_id}/view"
         c.execute("REPLACE INTO documents VALUES (?, ?, ?, ?, ?)", (file_id, name, url, text, vec_str))
 
     conn.commit()
     conn.close()
-
 
 def download_model_from_gcs():
     print("STEP: Loading model from GCS")
@@ -99,13 +110,11 @@ def download_model_from_gcs():
 
     return temp_dir
 
-
 def upload_to_bucket():
     client = storage.Client(credentials=get_secret())
     bucket = client.bucket(BUCKET_NAME)
     blob = bucket.blob("embeddings.db")
     blob.upload_from_filename(DB_PATH)
-
 
 def main(request):
     try:
