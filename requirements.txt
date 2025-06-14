@@ -6,7 +6,8 @@ google-auth
 sentence-transformers
 functions-framework
 google-cloud-secret-manager
-
-
+sqlite3 
+hashlib
+tempfile
 
 
