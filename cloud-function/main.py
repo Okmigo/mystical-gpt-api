@@ -13,15 +13,13 @@ from google.cloud import secretmanager_v1 as secretmanager
 
 FOLDER_ID = "1XtKZcNHAjCf_FNPJMPOwT8QfqbdD9uvW"
 BUCKET_NAME = "mystical-gpt-bucket"
-MODEL_NAME = "all-MiniLM-L6-v2"
+MODEL_PATH = "all-MiniLM-L6-v2"
 DB_PATH = "/tmp/embeddings.db"
 
-def get_credentials():
-    return service_account.Credentials.from_service_account_file("service_account.json")
 
-
-def get_credentials():
-    project_id = "corded-nature-462101-b4"
+def get_secret():
+    print("STEP: Fetching secret from Secret Manager")
+    project_id = os.environ["GCP_PROJECT"]
     secret_id = "my-service-account-key"
     client = secretmanager.SecretManagerServiceClient()
     name = f"projects/{project_id}/secrets/{secret_id}/versions/latest"
@@ -31,7 +29,7 @@ def get_credentials():
 
 
 def get_drive_service():
-    return build("drive", "v3", credentials=get_credentials())
+    return build("drive", "v3", credentials=get_secret())
 
 
 def download_pdf(file_id, out_path):
@@ -43,9 +41,6 @@ def download_pdf(file_id, out_path):
         while not done:
             status, done = downloader.next_chunk()
 
-def extract_text(path):
-    doc = fitz.open(path)
-    return "\\n".join([p.get_text() for p in doc])
 
 def extract_text(path):
     doc = fitz.open(path)
@@ -53,19 +48,18 @@ def extract_text(path):
 
 
 def embed_pdfs():
-    creds = get_credentials()
+    creds = get_secret()
     drive = get_drive_service()
-    model = SentenceTransformer(MODEL_NAME)
+    model_dir = download_model_from_gcs()
+    model = SentenceTransformer(model_dir)
 
     query = f"'{FOLDER_ID}' in parents and mimeType='application/pdf' and trashed=false"
     files = drive.files().list(q=query, fields="files(id, name)").execute().get("files", [])
 
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute("DROP TABLE IF EXISTS documents")
-    c.execute(\"\"\"\n        CREATE TABLE documents (\n            id TEXT PRIMARY KEY,\n            title TEXT,\n            url TEXT,\n            text TEXT,\n            embedding TEXT\n        )\n    \"\"\")
     c.execute("""
-        CREATE TABLE documents (
+        CREATE TABLE IF NOT EXISTS documents (
             id TEXT PRIMARY KEY,
             title TEXT,
             url TEXT,
@@ -82,21 +76,43 @@ def embed_pdfs():
         vec = model.encode(text).tolist()
         vec_str = ",".join(map(str, vec))
         url = f"https://drive.google.com/file/d/{file_id}/view"
-        c.execute("INSERT INTO documents VALUES (?, ?, ?, ?, ?)", (file_id, name, url, text, vec_str))
+        c.execute("REPLACE INTO documents VALUES (?, ?, ?, ?, ?)", (file_id, name, url, text, vec_str))
 
     conn.commit()
     conn.close()
 
+
+def download_model_from_gcs():
+    print("STEP: Loading model from GCS")
+    client = storage.Client(credentials=get_secret())
+    bucket = client.bucket(BUCKET_NAME)
+    temp_dir = tempfile.mkdtemp()
+    blobs = list(bucket.list_blobs(prefix=MODEL_PATH))
+
+    for blob in blobs:
+        if not blob.name.endswith("/"):
+            rel_path = os.path.relpath(blob.name, MODEL_PATH)
+            target_path = os.path.join(temp_dir, rel_path)
+            os.makedirs(os.path.dirname(target_path), exist_ok=True)
+            blob.download_to_filename(target_path)
+            print(f"DOWNLOADED: {blob.name}")
+
+    return temp_dir
+
+
 def upload_to_bucket():
-    client = storage.Client(credentials=get_credentials())
+    client = storage.Client(credentials=get_secret())
     bucket = client.bucket(BUCKET_NAME)
     blob = bucket.blob("embeddings.db")
     blob.upload_from_filename(DB_PATH)
 
+
 def main(request):
     try:
+        print("TRIGGER: HTTP function called")
         embed_pdfs()
         upload_to_bucket()
         return jsonify({"status": "success", "message": "embeddings.db updated in GCS"})
     except Exception as e:
+        print("ERROR:", str(e))
         return jsonify({"status": "error", "message": str(e)}), 500
