@@ -1,3 +1,7 @@
-fastapi
-uvicorn
+flask
 sentence-transformers
+PyMuPDF
+google-api-python-client
+google-auth
+google-cloud-storage
+google-cloud-secret-manager
