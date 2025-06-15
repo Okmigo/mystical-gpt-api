@@ -1,5 +1,5 @@
 from flask import Flask, request, jsonify
-from main import embed_pdfs, upload_to_bucket
+from main_cloud_func import embed_pdfs, upload_to_bucket
 
 app = Flask(__name__)
 
