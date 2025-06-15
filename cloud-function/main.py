@@ -78,8 +78,15 @@ def embed_pdfs():
         )
     """)
 
+    c.execute("SELECT id FROM documents")
+    existing_ids = {row[0] for row in c.fetchall()}
+
     for f in files:
         file_id, name = f["id"], f["name"]
+        if file_id in existing_ids:
+            print(f"SKIPPED: {name} already embedded")
+            continue
+
         tmp_path = f"/tmp/{file_id}.pdf"
         print(f"PROCESSING: {name}")
         download_pdf(file_id, tmp_path)
