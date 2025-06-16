@@ -20,3 +20,23 @@ def handler():
 
 if __name__ == "__main__":
     app.run(debug=False, host="0.0.0.0", port=8080)
+
+def handler():
+    try:
+        print("TRIGGER: HTTP POST received")
+        
+        def run_background():
+            print("START: embed_pdfs")
+            embed_pdfs()
+            print("DONE: embed_pdfs")
+
+            print("START: upload_to_bucket")
+            upload_to_bucket()
+            print("DONE: upload_to_bucket")
+
+        Thread(target=run_background).start()
+        return jsonify({"status": "accepted", "message": "Embedding started in background"}), 202
+    except Exception as e:
+        print("ERROR:", str(e))
+        return jsonify({"status": "error", "message": str(e)}), 500
+
