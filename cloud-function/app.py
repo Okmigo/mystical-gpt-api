@@ -1,40 +1,42 @@
 from flask import Flask, request, jsonify
-from threading import Thread
-import os
-
 from main_cloud_func import embed_pdfs, upload_to_bucket
+import os
+import sqlite3
 
 app = Flask(__name__)
 
-STATUS_FILE = "embeddings/embeddings.db"
+DB_PATH = "/tmp/embeddings.db"
 
-# Background embedding process
-def run_embedding(force: bool = False):
+@app.route("/", methods=["POST"])
+def trigger_embedding():
+    force = request.args.get("force") == "true"
     try:
+        print("TRIGGER: HTTP POST received")
+        if force and os.path.exists(DB_PATH):
+            os.remove(DB_PATH)
+            print("FORCE: Removed existing embeddings.db")
+
         print("START: embed_pdfs")
-        embed_pdfs(force=force)
+        embed_pdfs()
         print("DONE: embed_pdfs")
 
         print("START: upload_to_bucket")
         upload_to_bucket()
         print("DONE: upload_to_bucket")
+
+        return jsonify({"status": "success", "message": "Embedding completed"}), 200
     except Exception as e:
-        print("ERROR in background thread:", str(e))
+        print("ERROR:", str(e))
+        return jsonify({"status": "error", "message": str(e)}), 500
 
-# POST endpoint
-@app.route("/", methods=["POST"])
-def trigger():
-    force = request.args.get("force", "false").lower() == "true"
-    Thread(target=run_embedding, args=(force,)).start()
-    return jsonify({"status": "accepted", "message": "Embedding started in background"}), 202
-
-# Status endpoint
 @app.route("/status", methods=["GET"])
 def status():
-    if os.path.exists(STATUS_FILE):
-        size = os.path.getsize(STATUS_FILE)
-        return jsonify({"status": "ready", "size": size, "message": "embeddings.db available"})
-    return jsonify({"status": "missing", "message": "embeddings.db not found"}), 404
+    exists = os.path.exists(DB_PATH)
+    if exists:
+        size = os.path.getsize(DB_PATH)
+        return jsonify({"status": "ok", "message": "embeddings.db exists", "size_bytes": size})
+    else:
+        return jsonify({"status": "missing", "message": "embeddings.db not found"})
 
 if __name__ == "__main__":
-    app.run(debug=False, host="0.0.0.0", port=8080)
+    app.run(host="0.0.0.0", port=8080)
