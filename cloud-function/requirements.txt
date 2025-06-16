@@ -1,3 +1,4 @@
+gunicorn
 sentence-transformers
 PyMuPDF
 google-api-python-client
