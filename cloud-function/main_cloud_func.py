@@ -126,9 +126,9 @@ def upload_to_bucket():
 def main(request):
     try:
         print("TRIGGER: HTTP function called")
-        embed_pdfs()
-        upload_to_bucket()
-        return jsonify({"status": "success", "message": "embeddings.db updated in GCS"})
+        from threading import Thread
+        Thread(target=lambda: (embed_pdfs(), upload_to_bucket())).start()
+        return jsonify({"status": "accepted", "message": "Embedding started in background"}), 202
     except Exception as e:
         print("ERROR:", str(e))
         return jsonify({"status": "error", "message": str(e)}), 500
