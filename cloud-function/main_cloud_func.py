@@ -57,7 +57,8 @@ def chunk_text(text, max_tokens=500):
         chunks.append(' '.join(current))
     return chunks
 
-def embed_pdfs():
+
+def embed_pdfs(force=False):
     creds = get_secret()
     drive = get_drive_service()
     model_dir = download_model_from_gcs()
