@@ -3,6 +3,7 @@ import json
 import sqlite3
 import fitz  # PyMuPDF
 import tempfile
+import numpy as np
 from sentence_transformers import SentenceTransformer
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
@@ -14,6 +15,7 @@ FOLDER_ID = "1XtKZcNHAjCf_FNPJMPOwT8QfqbdD9uvW"
 BUCKET_NAME = "mystical-gpt-bucket"
 MODEL_PATH = "all-MiniLM-L6-v2"
 DB_PATH = "/tmp/embeddings.db"
+MAX_CHUNKS_PER_FILE = 50  # safety cap
 
 def get_secret():
     print("STEP: Fetching secret from Secret Manager")
@@ -54,9 +56,10 @@ def chunk_text(text, max_tokens=500):
         tokens += sentence_tokens
     if current:
         chunks.append(' '.join(current))
-    return chunks
+    return chunks[:MAX_CHUNKS_PER_FILE]
 
 def embed_pdfs(force=False):
+    print("START: embed_pdfs called with force=", force)
     creds = get_secret()
     drive = get_drive_service()
     model_dir = download_model_from_gcs()
@@ -91,13 +94,22 @@ def embed_pdfs(force=False):
         download_pdf(file_id, tmp_path)
         text = extract_text(tmp_path)
         chunks = chunk_text(text)
-        vec = model.encode(chunks).mean(axis=0).tolist()
-        vec_str = ",".join(map(str, vec))
+
+        if not chunks:
+            print(f"SKIPPED: No extractable text in {name}")
+            continue
+
+        vecs = [model.encode([chunk])[0] for chunk in chunks]
+        avg_vec = np.mean(vecs, axis=0).tolist()
+        vec_str = ",".join(map(str, avg_vec))
         url = f"https://drive.google.com/file/d/{file_id}/view"
+
         c.execute("REPLACE INTO documents VALUES (?, ?, ?, ?, ?)", (file_id, name, url, text, vec_str))
+        print(f"EMBEDDED: {name} with {len(chunks)} chunks")
 
     conn.commit()
     conn.close()
+    print("DONE: All eligible documents embedded.")
 
 def download_model_from_gcs():
     print("STEP: Loading model from GCS")
