@@ -3,7 +3,6 @@ import json
 import sqlite3
 import fitz  # PyMuPDF
 import tempfile
-from flask import jsonify
 from sentence_transformers import SentenceTransformer
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
@@ -56,7 +55,6 @@ def chunk_text(text, max_tokens=500):
     if current:
         chunks.append(' '.join(current))
     return chunks
-
 
 def embed_pdfs(force=False):
     creds = get_secret()
@@ -119,17 +117,9 @@ def download_model_from_gcs():
     return temp_dir
 
 def upload_to_bucket():
+    print("STEP: Uploading embeddings.db to GCS")
     client = storage.Client(credentials=get_secret())
     bucket = client.bucket(BUCKET_NAME)
     blob = bucket.blob("embeddings.db")
     blob.upload_from_filename(DB_PATH)
-
-def main(request):
-    try:
-        print("TRIGGER: HTTP function called")
-        from threading import Thread
-        Thread(target=lambda: (embed_pdfs(), upload_to_bucket())).start()
-        return jsonify({"status": "accepted", "message": "Embedding started in background"}), 202
-    except Exception as e:
-        print("ERROR:", str(e))
-        return jsonify({"status": "error", "message": str(e)}), 500
+    print("UPLOAD COMPLETE")
