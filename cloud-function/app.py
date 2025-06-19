@@ -1,5 +1,6 @@
 import os
 import sqlite3
+import time
 from flask import Flask, request, jsonify
 from main_cloud_func import embed_pdfs, upload_to_bucket
 
@@ -16,14 +17,24 @@ def trigger_embedding():
             print("FORCE: Removed existing embeddings.db")
 
         print("START: embed_pdfs")
-        embed_pdfs(force=force)
-        print("DONE: embed_pdfs")
+        start_time = time.time()
+        modified = embed_pdfs(force=force)
+        duration = time.time() - start_time
+        print(f"DONE: embed_pdfs in {duration:.2f}s")
 
-        print("START: upload_to_bucket")
-        upload_to_bucket()
-        print("DONE: upload_to_bucket")
+        if modified:
+            print("START: upload_to_bucket")
+            upload_to_bucket()
+            print("DONE: upload_to_bucket")
+        else:
+            print("SKIP: No new documents embedded. Upload skipped.")
 
-        return jsonify({"status": "success", "message": "Embedding completed"}), 200
+        return jsonify({
+            "status": "success",
+            "message": "Embedding completed",
+            "duration_seconds": duration,
+            "new_docs_embedded": modified
+        }), 200
     except Exception as e:
         print("ERROR:", str(e))
         return jsonify({"status": "error", "message": str(e)}), 500
@@ -33,7 +44,16 @@ def status():
     exists = os.path.exists(DB_PATH)
     if exists:
         size = os.path.getsize(DB_PATH)
-        return jsonify({"status": "ok", "message": "embeddings.db exists", "size_bytes": size})
+        try:
+            conn = sqlite3.connect(DB_PATH)
+            c = conn.cursor()
+            c.execute("SELECT COUNT(*) FROM documents")
+            count = c.fetchone()[0]
+            conn.close()
+        except Exception as e:
+            count = "error"
+            print("ERROR reading DB count:", e)
+        return jsonify({"status": "ok", "message": "embeddings.db exists", "size_bytes": size, "doc_count": count})
     else:
         return jsonify({"status": "missing", "message": "embeddings.db not found"})
 
