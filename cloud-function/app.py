@@ -8,7 +8,7 @@ DB_PATH = "/tmp/embeddings.db"
 
 @app.route("/", methods=["POST"])
 def trigger_embedding():
-    force = request.args.get("force") == "true"
+    force = request.args.get("force", "false").lower() == "true"
     try:
         print("TRIGGER: HTTP POST received")
         if force and os.path.exists(DB_PATH):
