@@ -10,15 +10,13 @@ from google.cloud import storage
 from google.cloud import secretmanager
 
 BUCKET_NAME = "mystical-pdf-embed-bucket"
-MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
-MODEL_PATH = os.path.join(tempfile.gettempdir(), "hf_models")
+MODEL_PATH = os.path.join(os.path.dirname(__file__), "models", "all-MiniLM-L6-v2")
 DB_PATH = os.path.join(tempfile.gettempdir(), "embeddings.db")
 PDF_DIR = os.path.join(tempfile.gettempdir(), "pdfs")
 
 os.makedirs(PDF_DIR, exist_ok=True)
-os.makedirs(MODEL_PATH, exist_ok=True)
 
-model = SentenceTransformer(MODEL_NAME)
+model = SentenceTransformer(MODEL_PATH)
 
 def download_secret(secret_id: str, version_id: str = "latest") -> str:
     client = secretmanager.SecretManagerServiceClient()
