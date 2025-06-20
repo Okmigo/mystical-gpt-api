@@ -2,7 +2,7 @@ import os
 import sqlite3
 import time
 from flask import Flask, request, jsonify
-from main_cloud_func import embed_pdfs, upload_to_bucket
+from main_cloud_func import embed_pdfs
 
 app = Flask(__name__)
 DB_PATH = "/tmp/embeddings.db"
