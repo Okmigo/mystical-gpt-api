@@ -2,6 +2,7 @@ fastapi
 flask
 sentence-transformers
 PyMuPDF
+PyPDF2
 google-api-python-client
 google-auth
 google-cloud-storage
