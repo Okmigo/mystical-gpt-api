@@ -1,6 +1,7 @@
 gunicorn
 sentence-transformers
 PyMuPDF
+PyPDF2
 google-api-python-client
 google-cloud-storage
 google-auth
