@@ -2,7 +2,7 @@ import os
 import sqlite3
 import time
 from flask import Flask, request, jsonify
-from main_cloud_func import embed_pdfs
+from main_cloud_func import embed_pdfs, upload_to_bucket
 
 app = Flask(__name__)
 DB_PATH = "/tmp/embeddings.db"
@@ -39,6 +39,7 @@ def trigger_embedding():
         print("ERROR:", str(e))
         return jsonify({"status": "error", "message": str(e)}), 500
 
+
 @app.route("/status", methods=["GET"])
 def status():
     exists = os.path.exists(DB_PATH)
@@ -56,6 +57,12 @@ def status():
         return jsonify({"status": "ok", "message": "embeddings.db exists", "size_bytes": size, "doc_count": count})
     else:
         return jsonify({"status": "missing", "message": "embeddings.db not found"})
+
+
+@app.route("/ping", methods=["GET"])
+def ping():
+    return jsonify({"message": "pong"}), 200
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
