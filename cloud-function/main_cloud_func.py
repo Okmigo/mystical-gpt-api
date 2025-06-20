@@ -2,140 +2,112 @@
 
 import os
 import io
-import time
-import tempfile
-import logging
 import sqlite3
-from typing import List
-
-from google.cloud import storage, secretmanager
+import fitz  # PyMuPDF
+import tempfile
+from datetime import datetime
 from sentence_transformers import SentenceTransformer
+from google.cloud import storage, secretmanager
+from googleapiclient.discovery import build
+from google.oauth2 import service_account
 from PyPDF2 import PdfReader
-import torch
 
-logging.basicConfig(level=logging.INFO)
-
-BUCKET_NAME = "mystical-gpt-bucket"
 MODEL_NAME = "all-MiniLM-L6-v2"
-MODEL_PATH = f"models/{MODEL_NAME}"
-DB_PATH = "/tmp/embeddings.db"
-CHUNK_SIZE = 1000
-BATCH_SIZE = 8
+MODEL_PATH = f"/tmp/models/{MODEL_NAME}"
+EMBEDDINGS_DB = "/tmp/embeddings.db"
+BUCKET_NAME = "your-gcs-bucket-name"
+SECRET_NAME = "your-secret-name"
+PDF_FOLDER_ID = "your-google-drive-folder-id"
 
 
-def fetch_secret(secret_id: str) -> str:
+def get_model():
+    if not os.path.exists(MODEL_PATH):
+        model = SentenceTransformer(MODEL_NAME)
+        model.save(MODEL_PATH)
+    return SentenceTransformer(MODEL_PATH)
+
+
+def fetch_secret(secret_name: str) -> str:
     client = secretmanager.SecretManagerServiceClient()
-    name = f"projects/{os.environ['GCP_PROJECT']}/secrets/{secret_id}/versions/latest"
-    response = client.access_secret_version(name=name)
+    project_id = os.environ["GCP_PROJECT"]
+    secret_path = f"projects/{project_id}/secrets/{secret_name}/versions/latest"
+    response = client.access_secret_version(name=secret_path)
     return response.payload.data.decode("UTF-8")
 
 
-def download_model():
-    client = storage.Client()
-    bucket = client.bucket(BUCKET_NAME)
-    for blob in bucket.list_blobs(prefix=MODEL_PATH):
-        dest_path = os.path.join("/tmp", blob.name)
-        os.makedirs(os.path.dirname(dest_path), exist_ok=True)
-        blob.download_to_filename(dest_path)
-        logging.info(f"DOWNLOADED: {blob.name}")
-    return SentenceTransformer(os.path.join("/tmp", MODEL_PATH))
+def get_drive_service():
+    creds_json = fetch_secret(SECRET_NAME)
+    creds = service_account.Credentials.from_service_account_info(eval(creds_json))
+    return build("drive", "v3", credentials=creds)
 
 
-def download_embeddings_db():
-    client = storage.Client()
-    bucket = client.bucket(BUCKET_NAME)
-    blob = bucket.blob("embeddings.db")
-    if blob.exists():
-        blob.download_to_filename(DB_PATH)
-        logging.info("EXISTING DB DOWNLOADED")
-    else:
-        logging.info("NO EXISTING DB FOUND — WILL CREATE NEW")
+def list_pdfs_in_drive(folder_id: str):
+    drive_service = get_drive_service()
+    results = drive_service.files().list(
+        q=f"'{folder_id}' in parents and mimeType='application/pdf' and trashed=false",
+        fields="files(id, name)"
+    ).execute()
+    return results.get("files", [])
 
 
-def upload_embeddings_db():
-    client = storage.Client()
-    bucket = client.bucket(BUCKET_NAME)
-    blob = bucket.blob("embeddings.db")
-    blob.upload_from_filename(DB_PATH)
-    logging.info("UPLOAD COMPLETE")
+def download_pdf(file_id: str):
+    drive_service = get_drive_service()
+    request = drive_service.files().get_media(fileId=file_id)
+    fh = io.BytesIO()
+    downloader = MediaIoBaseDownload(fh, request)
+    done = False
+    while not done:
+        status, done = downloader.next_chunk()
+    fh.seek(0)
+    return fh
 
 
-def fetch_pdfs() -> List[tuple[str, bytes]]:
-    from googleapiclient.discovery import build
-    from google.oauth2 import service_account
+def embed_pdfs(force: bool = False):
+    print("START: embed_pdfs called with force=", force)
+    storage_client = storage.Client()
+    bucket = storage_client.bucket(BUCKET_NAME)
 
-    creds_dict = eval(fetch_secret("gdrive-service-key"))
-    creds = service_account.Credentials.from_service_account_info(creds_dict)
-    service = build("drive", "v3", credentials=creds)
-    
-    folder_id = fetch_secret("gdrive-folder-id")
-    query = f"'{folder_id}' in parents and mimeType='application/pdf' and trashed = false"
-    response = service.files().list(q=query, fields="files(id, name)").execute()
+    if not force and bucket.blob("embeddings.db").exists():
+        bucket.blob("embeddings.db").download_to_filename(EMBEDDINGS_DB)
+        print("EXISTING DB DOWNLOADED")
 
-    files = []
-    for file in response.get("files", []):
-        file_id, name = file["id"], file["name"]
-        request = service.files().get_media(fileId=file_id)
-        fh = io.BytesIO()
-        downloader = MediaIoBaseDownload(fh, request)
-        done = False
-        while not done:
-            status, done = downloader.next_chunk()
-        files.append((name, fh.getvalue()))
-    return files
+    model = get_model()
 
-
-def chunk_text(text: str, chunk_size: int = CHUNK_SIZE) -> List[str]:
-    words = text.split()
-    return [" ".join(words[i:i + chunk_size]) for i in range(0, len(words), chunk_size)]
-
-
-def embed_pdfs(force: bool = False) -> dict:
-    logging.info("START: embed_pdfs called with force= %s", force)
-    download_embeddings_db()
-    model = download_model()
-
-    files = fetch_pdfs()
-    embedded_doc_ids = set()
-
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute("CREATE TABLE IF NOT EXISTS documents (id TEXT, content TEXT, embedding BLOB)")
-
-    if not force:
-        cur.execute("SELECT DISTINCT id FROM documents")
-        embedded_doc_ids = {row[0] for row in cur.fetchall()}
-
-    new_files = [(name, data) for name, data in files if name not in embedded_doc_ids]
-    logging.info(f"FILES TO EMBED: {len(new_files)}")
-
-    if not new_files:
-        conn.close()
-        return {"modified": False, "new_docs": 0}
-
-    for name, data in new_files:
-        logging.info(f"PROCESSING: {name}")
-        reader = PdfReader(io.BytesIO(data))
-        full_text = "\n".join(page.extract_text() or "" for page in reader.pages)
-        chunks = chunk_text(full_text)
-
-        all_vectors = []
-        with torch.no_grad():
-            for i in range(0, len(chunks), BATCH_SIZE):
-                batch = chunks[i:i + BATCH_SIZE]
-                vecs = model.encode(batch)
-                all_vectors.extend(vecs.tolist())
-
-        doc_vec = torch.tensor(all_vectors).mean(dim=0).tolist()
-        cur.execute("INSERT INTO documents VALUES (?, ?, ?)", (name, full_text, sqlite3.Binary(pickle.dumps(doc_vec))))
-
-        # Save intermediate .tmp backup
-        with open("/tmp/embeddings.partial.db", "wb") as f:
-            for line in conn.iterdump():
-                f.write(f"{line}\n".encode("utf-8"))
-
+    conn = sqlite3.connect(EMBEDDINGS_DB)
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS documents (
+            id TEXT PRIMARY KEY,
+            text TEXT,
+            embedding BLOB,
+            timestamp TEXT
+        )
+    """)
     conn.commit()
-    conn.close()
 
-    upload_embeddings_db()
-    return {"modified": True, "new_docs": len(new_files)}
+    embedded_ids = set(row[0] for row in cursor.execute("SELECT id FROM documents").fetchall())
+    pdfs = list_pdfs_in_drive(PDF_FOLDER_ID)
+
+    for pdf in pdfs:
+        if pdf["id"] in embedded_ids:
+            continue
+
+        print("PROCESSING:", pdf["name"])
+        pdf_stream = download_pdf(pdf["id"])
+        reader = PdfReader(pdf_stream)
+        text = "\n".join(page.extract_text() or "" for page in reader.pages)
+
+        if not text.strip():
+            print("EMPTY PDF SKIPPED")
+            continue
+
+        embedding = model.encode(text)
+        cursor.execute("INSERT INTO documents VALUES (?, ?, ?, ?)",
+                       (pdf["id"], text, embedding.tobytes(), datetime.utcnow().isoformat()))
+        conn.commit()
+
+    conn.close()
+    bucket.blob("embeddings.db").upload_from_filename(EMBEDDINGS_DB)
+    print("UPLOAD COMPLETE")
+
+    return {"status": "success", "message": "Embeddings updated."}
