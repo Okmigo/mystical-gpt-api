@@ -8,11 +8,15 @@ from PyPDF2 import PdfReader
 from sentence_transformers import SentenceTransformer
 from google.cloud import storage
 from google.cloud import secretmanager
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseDownload
 
 BUCKET_NAME = "mystical-gpt-bucket"
 MODEL_PATH = os.path.join(os.path.dirname(__file__), "models", "all-MiniLM-L6-v2")
 DB_PATH = os.path.join(tempfile.gettempdir(), "embeddings.db")
 PDF_DIR = os.path.join(tempfile.gettempdir(), "pdfs")
+DRIVE_FOLDER_ID = os.environ.get("DRIVE_FOLDER_ID")
 
 os.makedirs(PDF_DIR, exist_ok=True)
 
@@ -51,11 +55,29 @@ def extract_text_from_pdf(pdf_path: str) -> str:
     text = "\n".join([page.extract_text() for page in reader.pages if page.extract_text()])
     return text
 
+def download_pdfs_from_drive():
+    credentials = service_account.Credentials.from_service_account_file(
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"], scopes=["https://www.googleapis.com/auth/drive.readonly"]
+    )
+    service = build("drive", "v3", credentials=credentials)
+
+    query = f"'{DRIVE_FOLDER_ID}' in parents and mimeType='application/pdf' and trashed=false"
+    response = service.files().list(q=query, fields="files(id, name)").execute()
+    files = response.get("files", [])
+
+    for file in files:
+        request = service.files().get_media(fileId=file["id"])
+        local_path = os.path.join(PDF_DIR, file["name"])
+        fh = io.FileIO(local_path, "wb")
+        downloader = MediaIoBaseDownload(fh, request)
+        done = False
+        while not done:
+            _, done = downloader.next_chunk()
+        print(f"DOWNLOADED FROM DRIVE: {file['name']}")
+
 def embed_pdfs(force: bool = False) -> bool:
     download_existing_db()
-    client = storage.Client()
-    bucket = client.bucket(BUCKET_NAME)
-    blobs = bucket.list_blobs(prefix="pdfs/")
+    download_pdfs_from_drive()
 
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -70,16 +92,14 @@ def embed_pdfs(force: bool = False) -> bool:
     conn.close()
 
     new_data = []
-    for blob in blobs:
-        if not blob.name.endswith(".pdf"):
+    for filename in os.listdir(PDF_DIR):
+        if not filename.endswith(".pdf"):
             continue
 
-        filename = os.path.basename(blob.name)
         if not force and filename in existing_files:
             continue
 
         local_path = os.path.join(PDF_DIR, filename)
-        blob.download_to_filename(local_path)
         print(f"PROCESSING: {filename}")
 
         try:
