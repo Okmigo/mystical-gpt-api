@@ -1,3 +1,4 @@
+# app.py
 import os
 import sqlite3
 import time
@@ -5,7 +6,7 @@ from flask import Flask, request, jsonify
 from main_cloud_func import embed_pdfs, upload_to_bucket
 
 app = Flask(__name__)
-DB_PATH = "/tmp/embeddings.db"
+DB_PATH = os.path.join("/tmp", "embeddings.db")
 
 @app.route("/", methods=["POST"])
 def trigger_embedding():
