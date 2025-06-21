@@ -4,6 +4,7 @@ import fitz  # PyMuPDF
 import sqlite3
 import tempfile
 import time
+import json
 from PyPDF2 import PdfReader
 from sentence_transformers import SentenceTransformer
 from google.cloud import storage
@@ -13,7 +14,7 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 
 BUCKET_NAME = "mystical-gpt-bucket"
-MODEL_NAME = "models/all-MiniLM-L6-v2"
+MODEL_NAME = "all-MiniLM-L6-v2"
 MODEL_LOCAL_DIR = os.path.join(tempfile.gettempdir(), MODEL_NAME)
 DB_PATH = os.path.join(tempfile.gettempdir(), "embeddings.db")
 PDF_DIR = os.path.join(tempfile.gettempdir(), "pdfs")
@@ -33,10 +34,21 @@ def download_model_from_gcs():
         blob.download_to_filename(local_path)
         print(f"MODEL FILE DOWNLOADED: {blob.name}")
 
+    # Validate presence of config.json
+    config_path = os.path.join(MODEL_LOCAL_DIR, "config.json")
+    if not os.path.exists(config_path):
+        raise FileNotFoundError("config.json missing from model directory")
+    with open(config_path) as f:
+        try:
+            cfg = json.load(f)
+            if not isinstance(cfg, dict) or "model_type" not in cfg:
+                raise ValueError("Invalid config.json: missing 'model_type'")
+        except json.JSONDecodeError as e:
+            raise ValueError("Malformed config.json") from e
+
 print("DOWNLOADING MODEL FROM GCS")
 download_model_from_gcs()
 model = SentenceTransformer(MODEL_LOCAL_DIR)
-
 
 def download_secret(secret_id: str, version_id: str = "latest") -> str:
     client = secretmanager.SecretManagerServiceClient()
