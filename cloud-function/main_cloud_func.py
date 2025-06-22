@@ -8,7 +8,6 @@ import json
 from PyPDF2 import PdfReader
 from sentence_transformers import SentenceTransformer
 from google.cloud import storage
-from google.cloud import secretmanager
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 import google.auth
@@ -48,12 +47,6 @@ def download_model_from_gcs():
 print("DOWNLOADING MODEL FROM GCS")
 download_model_from_gcs()
 model = SentenceTransformer(MODEL_LOCAL_DIR)
-
-def download_secret(secret_id: str, version_id: str = "latest") -> str:
-    client = secretmanager.SecretManagerServiceClient()
-    name = f"projects/{os.environ['GOOGLE_CLOUD_PROJECT']}/secrets/{secret_id}/versions/{version_id}"
-    response = client.access_secret_version(request={"name": name})
-    return response.payload.data.decode("UTF-8")
 
 def download_existing_db():
     client = storage.Client()
