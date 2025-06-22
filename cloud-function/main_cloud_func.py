@@ -7,6 +7,7 @@ import time
 import json
 import gc
 import logging
+import psutil
 from PyPDF2 import PdfReader
 from sentence_transformers import SentenceTransformer
 from google.cloud import storage
@@ -58,6 +59,10 @@ logger.info("DOWNLOADING MODEL FROM GCS")
 download_model_from_gcs()
 model = SentenceTransformer(MODEL_LOCAL_DIR)
 
+def log_mem():
+    mem = psutil.virtual_memory()
+    logger.info("MEMORY USAGE: %.2f%% used of %.2f GiB", mem.percent, mem.total / (1024**3))
+
 def download_existing_db():
     client = storage.Client(credentials=credentials)
     bucket = client.bucket(BUCKET_NAME)
@@ -102,7 +107,7 @@ def download_pdfs_from_drive():
             _, done = downloader.next_chunk()
         logger.info("DOWNLOADED FROM DRIVE: %s", file['name'])
 
-def embed_pdfs(force: bool = False, limit_files: int = None) -> bool:
+def embed_pdfs(force: bool = False, limit_files: int = 1) -> bool:
     try:
         download_existing_db()
         download_pdfs_from_drive()
@@ -136,10 +141,14 @@ def embed_pdfs(force: bool = False, limit_files: int = None) -> bool:
 
                 for chunk in text_chunks:
                     for piece in split_text(chunk):
-                        emb = model.encode(piece, convert_to_numpy=True).astype(np.float32)
-                        save_record_to_db(filename, piece, emb)
-                        del emb
-                        gc.collect()
+                        log_mem()
+                        try:
+                            emb = model.encode(piece, convert_to_numpy=True).astype(np.float32)
+                            save_record_to_db(filename, piece, emb)
+                            del emb
+                            gc.collect()
+                        except Exception as e:
+                            logger.warning("ENCODING FAILED ON CHUNK: %s", str(e))
 
                 embedded_any = True
             except Exception as e:
