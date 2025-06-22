@@ -44,17 +44,17 @@ def trigger_embedding():
 def status():
     exists = os.path.exists(DB_PATH)
     if exists:
-        size = os.path.getsize(DB_PATH)
         try:
+            size = os.path.getsize(DB_PATH)
             conn = sqlite3.connect(DB_PATH)
             c = conn.cursor()
             c.execute("SELECT COUNT(*) FROM documents")
             count = c.fetchone()[0]
             conn.close()
+            return jsonify({"status": "ok", "message": "embeddings.db exists", "size_bytes": size, "doc_count": count})
         except Exception as e:
-            count = "error"
             print("ERROR reading DB count:", e)
-        return jsonify({"status": "ok", "message": "embeddings.db exists", "size_bytes": size, "doc_count": count})
+            return jsonify({"status": "error", "message": str(e)}), 500
     else:
         return jsonify({"status": "missing", "message": "embeddings.db not found"})
 
