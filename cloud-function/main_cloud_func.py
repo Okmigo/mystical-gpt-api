@@ -7,6 +7,7 @@ import time
 import json
 import gc
 import logging
+from typing import Generator
 from PyPDF2 import PdfReader
 from sentence_transformers import SentenceTransformer
 from google.cloud import storage
@@ -83,8 +84,9 @@ def extract_text_from_pdf(pdf_path: str) -> list[str]:
     reader = PdfReader(pdf_path)
     return [page.extract_text() for page in reader.pages if page.extract_text()]
 
-def split_text(text: str, max_length: int = 300) -> list[str]:
-    return [text[i:i+max_length] for i in range(0, len(text), max_length)]
+def split_text(text: str, max_length: int = 300) -> Generator[str, None, None]:
+    for i in range(0, len(text), max_length):
+        yield text[i:i + max_length]
 
 def download_pdfs_from_drive():
     service = build("drive", "v3", credentials=credentials)
@@ -99,7 +101,11 @@ def download_pdfs_from_drive():
         downloader = MediaIoBaseDownload(fh, request)
         done = False
         while not done:
-            _, done = downloader.next_chunk()
+            try:
+                _, done = downloader.next_chunk()
+            except Exception as e:
+                logger.warning("DOWNLOAD FAILED FOR %s: %s", file['name'], str(e))
+                break
         logger.info("DOWNLOADED FROM DRIVE: %s", file['name'])
 
 def embed_pdfs(force: bool = False) -> bool:
