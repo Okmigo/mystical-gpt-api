@@ -6,6 +6,7 @@ import tempfile
 import time
 import json
 import gc
+import logging
 from PyPDF2 import PdfReader
 from sentence_transformers import SentenceTransformer
 from google.cloud import storage
@@ -14,6 +15,9 @@ from googleapiclient.http import MediaIoBaseDownload
 from google.oauth2 import service_account
 import google.auth
 import numpy as np
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 BUCKET_NAME = "mystical-gpt-bucket"
 MODEL_NAME = "all-MiniLM-L6-v2"
@@ -40,20 +44,17 @@ def download_model_from_gcs():
         local_path = os.path.join(MODEL_LOCAL_DIR, rel_path)
         os.makedirs(os.path.dirname(local_path), exist_ok=True)
         blob.download_to_filename(local_path)
-        print(f"MODEL FILE DOWNLOADED: {blob.name}")
+        logger.info("MODEL FILE DOWNLOADED: %s", blob.name)
 
     config_path = os.path.join(MODEL_LOCAL_DIR, "config.json")
     if not os.path.exists(config_path):
         raise FileNotFoundError("config.json missing from model directory")
     with open(config_path) as f:
-        try:
-            cfg = json.load(f)
-            if not isinstance(cfg, dict) or "model_type" not in cfg:
-                raise ValueError("Invalid config.json: missing 'model_type'")
-        except json.JSONDecodeError as e:
-            raise ValueError("Malformed config.json") from e
+        cfg = json.load(f)
+        if not isinstance(cfg, dict) or "model_type" not in cfg:
+            raise ValueError("Invalid config.json: missing 'model_type'")
 
-print("DOWNLOADING MODEL FROM GCS")
+logger.info("DOWNLOADING MODEL FROM GCS")
 download_model_from_gcs()
 model = SentenceTransformer(MODEL_LOCAL_DIR)
 
@@ -63,7 +64,7 @@ def download_existing_db():
     blob = bucket.blob("embeddings.db")
     if blob.exists():
         blob.download_to_filename(DB_PATH)
-        print("EXISTING DB DOWNLOADED")
+        logger.info("EXISTING DB DOWNLOADED")
 
 def save_record_to_db(filename: str, text: str, embedding: np.ndarray):
     with sqlite3.connect(DB_PATH) as conn:
@@ -99,7 +100,7 @@ def download_pdfs_from_drive():
         done = False
         while not done:
             _, done = downloader.next_chunk()
-        print(f"DOWNLOADED FROM DRIVE: {file['name']}")
+        logger.info("DOWNLOADED FROM DRIVE: %s", file['name'])
 
 def embed_pdfs(force: bool = False) -> bool:
     try:
@@ -125,7 +126,7 @@ def embed_pdfs(force: bool = False) -> bool:
                 continue
 
             local_path = os.path.join(PDF_DIR, filename)
-            print(f"PROCESSING: {filename}")
+            logger.info("PROCESSING: %s", filename)
             try:
                 text_chunks = extract_text_from_pdf(local_path)
                 if not text_chunks:
@@ -140,14 +141,14 @@ def embed_pdfs(force: bool = False) -> bool:
 
                 embedded_any = True
             except Exception as e:
-                print(f"ERROR processing {filename}: {e}")
+                logger.warning("ERROR processing %s: %s", filename, str(e))
 
         if embedded_any:
             upload_to_bucket()
         return embedded_any
 
     except Exception as global_err:
-        print(f"EMBEDDING FAILED: {global_err}")
+        logger.error("EMBEDDING FAILED: %s", str(global_err))
         return False
 
 def upload_to_bucket():
@@ -155,4 +156,4 @@ def upload_to_bucket():
     bucket = client.bucket(BUCKET_NAME)
     blob = bucket.blob("embeddings.db")
     blob.upload_from_filename(DB_PATH)
-    print("UPLOAD: embeddings.db uploaded to GCS")
+    logger.info("UPLOAD: embeddings.db uploaded to GCS")
