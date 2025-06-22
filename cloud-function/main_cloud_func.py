@@ -9,9 +9,9 @@ from PyPDF2 import PdfReader
 from sentence_transformers import SentenceTransformer
 from google.cloud import storage
 from google.cloud import secretmanager
-from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
+import google.auth
 
 BUCKET_NAME = "mystical-gpt-bucket"
 MODEL_NAME = "all-MiniLM-L6-v2"
@@ -34,7 +34,6 @@ def download_model_from_gcs():
         blob.download_to_filename(local_path)
         print(f"MODEL FILE DOWNLOADED: {blob.name}")
 
-    # Validate presence of config.json
     config_path = os.path.join(MODEL_LOCAL_DIR, "config.json")
     if not os.path.exists(config_path):
         raise FileNotFoundError("config.json missing from model directory")
@@ -84,9 +83,7 @@ def extract_text_from_pdf(pdf_path: str) -> str:
     return text
 
 def download_pdfs_from_drive():
-    credentials = service_account.Credentials.from_service_account_file(
-        os.environ["GOOGLE_APPLICATION_CREDENTIALS"], scopes=["https://www.googleapis.com/auth/drive.readonly"]
-    )
+    credentials, _ = google.auth.default()
     service = build("drive", "v3", credentials=credentials)
 
     query = f"'{DRIVE_FOLDER_ID}' in parents and mimeType='application/pdf' and trashed=false"
