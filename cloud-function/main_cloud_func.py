@@ -57,7 +57,7 @@ def download_existing_db():
         blob.download_to_filename(DB_PATH)
         print("EXISTING DB DOWNLOADED")
 
-def save_to_db(data: list[tuple[str, str, list[float]]]):
+def save_record_to_db(filename: str, text: str, embedding: np.ndarray):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS documents (
@@ -66,8 +66,8 @@ def save_to_db(data: list[tuple[str, str, list[float]]]):
         text TEXT,
         embedding BLOB
     )''')
-    for filename, text, embedding in data:
-        c.execute("INSERT INTO documents (filename, text, embedding) VALUES (?, ?, ?)", (filename, text, sqlite3.Binary(bytearray(embedding))))
+    c.execute("INSERT INTO documents (filename, text, embedding) VALUES (?, ?, ?)",
+              (filename, text, sqlite3.Binary(embedding.tobytes())))
     conn.commit()
     conn.close()
 
@@ -94,47 +94,50 @@ def download_pdfs_from_drive():
         print(f"DOWNLOADED FROM DRIVE: {file['name']}")
 
 def embed_pdfs(force: bool = False) -> bool:
-    download_existing_db()
-    download_pdfs_from_drive()
+    try:
+        download_existing_db()
+        download_pdfs_from_drive()
 
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("""CREATE TABLE IF NOT EXISTS documents (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        filename TEXT,
-        text TEXT,
-        embedding BLOB
-    )""")
-    c.execute("SELECT filename FROM documents")
-    existing_files = {row[0] for row in c.fetchall()}
-    conn.close()
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute("""CREATE TABLE IF NOT EXISTS documents (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            filename TEXT,
+            text TEXT,
+            embedding BLOB
+        )""")
+        c.execute("SELECT filename FROM documents")
+        existing_files = {row[0] for row in c.fetchall()}
+        conn.close()
 
-    new_data = []
-    for filename in os.listdir(PDF_DIR):
-        if not filename.endswith(".pdf"):
-            continue
-
-        if not force and filename in existing_files:
-            continue
-
-        local_path = os.path.join(PDF_DIR, filename)
-        print(f"PROCESSING: {filename}")
-
-        try:
-            text_chunks = extract_text_from_pdf(local_path)
-            if not text_chunks:
+        embedded_any = False
+        for filename in os.listdir(PDF_DIR):
+            if not filename.endswith(".pdf"):
                 continue
-            chunk_embeddings = model.encode(text_chunks)
-            avg_embedding = np.mean(chunk_embeddings, axis=0).astype(np.float32)
-            full_text = "\n".join(text_chunks)
-            new_data.append((filename, full_text, avg_embedding))
-        except Exception as e:
-            print(f"ERROR processing {filename}: {e}")
+            if not force and filename in existing_files:
+                continue
 
-    if new_data:
-        save_to_db(new_data)
-        return True
-    return False
+            local_path = os.path.join(PDF_DIR, filename)
+            print(f"PROCESSING: {filename}")
+            try:
+                text_chunks = extract_text_from_pdf(local_path)
+                if not text_chunks:
+                    continue
+                chunk_embeddings = model.encode(text_chunks, batch_size=1, convert_to_numpy=True)
+                avg_embedding = np.mean(chunk_embeddings, axis=0).astype(np.float32)
+                full_text = "\n".join(text_chunks)
+                save_record_to_db(filename, full_text, avg_embedding)
+                embedded_any = True
+            except Exception as e:
+                print(f"ERROR processing {filename}: {e}")
+
+        if embedded_any:
+            upload_to_bucket()
+        return embedded_any
+
+    except Exception as global_err:
+        print(f"EMBEDDING FAILED: {global_err}")
+        return False
 
 def upload_to_bucket():
     client = storage.Client()
