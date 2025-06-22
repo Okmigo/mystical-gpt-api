@@ -7,7 +7,6 @@ import time
 import json
 import gc
 import logging
-from typing import Generator
 from PyPDF2 import PdfReader
 from sentence_transformers import SentenceTransformer
 from google.cloud import storage
@@ -84,9 +83,8 @@ def extract_text_from_pdf(pdf_path: str) -> list[str]:
     reader = PdfReader(pdf_path)
     return [page.extract_text() for page in reader.pages if page.extract_text()]
 
-def split_text(text: str, max_length: int = 300) -> Generator[str, None, None]:
-    for i in range(0, len(text), max_length):
-        yield text[i:i + max_length]
+def split_text(text: str, max_length: int = 300) -> list[str]:
+    return [text[i:i+max_length] for i in range(0, len(text), max_length)]
 
 def download_pdfs_from_drive():
     service = build("drive", "v3", credentials=credentials)
@@ -101,14 +99,10 @@ def download_pdfs_from_drive():
         downloader = MediaIoBaseDownload(fh, request)
         done = False
         while not done:
-            try:
-                _, done = downloader.next_chunk()
-            except Exception as e:
-                logger.warning("DOWNLOAD FAILED FOR %s: %s", file['name'], str(e))
-                break
+            _, done = downloader.next_chunk()
         logger.info("DOWNLOADED FROM DRIVE: %s", file['name'])
 
-def embed_pdfs(force: bool = False) -> bool:
+def embed_pdfs(force: bool = False, limit_files: int = None) -> bool:
     try:
         download_existing_db()
         download_pdfs_from_drive()
@@ -124,10 +118,12 @@ def embed_pdfs(force: bool = False) -> bool:
             c.execute("SELECT filename FROM documents")
             existing_files = {row[0] for row in c.fetchall()}
 
+        all_files = [f for f in os.listdir(PDF_DIR) if f.endswith(".pdf")]
+        if limit_files:
+            all_files = all_files[:limit_files]
+
         embedded_any = False
-        for filename in os.listdir(PDF_DIR):
-            if not filename.endswith(".pdf"):
-                continue
+        for filename in all_files:
             if not force and filename in existing_files:
                 continue
 
