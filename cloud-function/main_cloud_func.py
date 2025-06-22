@@ -11,6 +11,7 @@ from google.cloud import storage
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 import google.auth
+import numpy as np
 
 BUCKET_NAME = "mystical-gpt-bucket"
 MODEL_NAME = "all-MiniLM-L6-v2"
@@ -70,10 +71,9 @@ def save_to_db(data: list[tuple[str, str, list[float]]]):
     conn.commit()
     conn.close()
 
-def extract_text_from_pdf(pdf_path: str) -> str:
+def extract_text_from_pdf(pdf_path: str) -> list[str]:
     reader = PdfReader(pdf_path)
-    text = "\n".join([page.extract_text() for page in reader.pages if page.extract_text()])
-    return text
+    return [page.extract_text() for page in reader.pages if page.extract_text()]
 
 def download_pdfs_from_drive():
     credentials, _ = google.auth.default()
@@ -121,11 +121,13 @@ def embed_pdfs(force: bool = False) -> bool:
         print(f"PROCESSING: {filename}")
 
         try:
-            text = extract_text_from_pdf(local_path)
-            if not text.strip():
+            text_chunks = extract_text_from_pdf(local_path)
+            if not text_chunks:
                 continue
-            embeddings = model.encode([text])[0]
-            new_data.append((filename, text, embeddings))
+            chunk_embeddings = model.encode(text_chunks)
+            avg_embedding = np.mean(chunk_embeddings, axis=0).astype(np.float32)
+            full_text = "\n".join(text_chunks)
+            new_data.append((filename, full_text, avg_embedding))
         except Exception as e:
             print(f"ERROR processing {filename}: {e}")
 
