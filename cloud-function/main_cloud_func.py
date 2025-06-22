@@ -10,6 +10,7 @@ from sentence_transformers import SentenceTransformer
 from google.cloud import storage
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
+from google.oauth2 import service_account
 import google.auth
 import numpy as np
 
@@ -23,8 +24,14 @@ DRIVE_FOLDER_ID = "1XtKZcNHAjCf_FNPJMPOwT8QfqbdD9uvW"
 os.makedirs(PDF_DIR, exist_ok=True)
 os.makedirs(MODEL_LOCAL_DIR, exist_ok=True)
 
+SERVICE_ACCOUNT_FILE = os.getenv("SERVICE_ACCOUNT_FILE")
+if SERVICE_ACCOUNT_FILE and os.path.exists(SERVICE_ACCOUNT_FILE):
+    credentials = service_account.Credentials.from_service_account_file(SERVICE_ACCOUNT_FILE)
+else:
+    credentials, _ = google.auth.default()
+
 def download_model_from_gcs():
-    client = storage.Client()
+    client = storage.Client(credentials=credentials)
     bucket = client.bucket(BUCKET_NAME)
     blobs = bucket.list_blobs(prefix=MODEL_NAME + "/")
     for blob in blobs:
@@ -50,7 +57,7 @@ download_model_from_gcs()
 model = SentenceTransformer(MODEL_LOCAL_DIR)
 
 def download_existing_db():
-    client = storage.Client()
+    client = storage.Client(credentials=credentials)
     bucket = client.bucket(BUCKET_NAME)
     blob = bucket.blob("embeddings.db")
     if blob.exists():
@@ -76,7 +83,6 @@ def extract_text_from_pdf(pdf_path: str) -> list[str]:
     return [page.extract_text() for page in reader.pages if page.extract_text()]
 
 def download_pdfs_from_drive():
-    credentials, _ = google.auth.default()
     service = build("drive", "v3", credentials=credentials)
 
     query = f"'{DRIVE_FOLDER_ID}' in parents and mimeType='application/pdf' and trashed=false"
@@ -140,7 +146,7 @@ def embed_pdfs(force: bool = False) -> bool:
         return False
 
 def upload_to_bucket():
-    client = storage.Client()
+    client = storage.Client(credentials=credentials)
     bucket = client.bucket(BUCKET_NAME)
     blob = bucket.blob("embeddings.db")
     blob.upload_from_filename(DB_PATH)
