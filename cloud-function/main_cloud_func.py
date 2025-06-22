@@ -5,6 +5,7 @@ import sqlite3
 import tempfile
 import time
 import json
+import gc
 from PyPDF2 import PdfReader
 from sentence_transformers import SentenceTransformer
 from google.cloud import storage
@@ -65,26 +66,27 @@ def download_existing_db():
         print("EXISTING DB DOWNLOADED")
 
 def save_record_to_db(filename: str, text: str, embedding: np.ndarray):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS documents (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        filename TEXT,
-        text TEXT,
-        embedding BLOB
-    )''')
-    c.execute("INSERT INTO documents (filename, text, embedding) VALUES (?, ?, ?)",
-              (filename, text, sqlite3.Binary(embedding.tobytes())))
-    conn.commit()
-    conn.close()
+    with sqlite3.connect(DB_PATH) as conn:
+        c = conn.cursor()
+        c.execute('''CREATE TABLE IF NOT EXISTS documents (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            filename TEXT,
+            text TEXT,
+            embedding BLOB
+        )''')
+        c.execute("INSERT INTO documents (filename, text, embedding) VALUES (?, ?, ?)",
+                  (filename, text, sqlite3.Binary(embedding.astype(np.float32).tobytes())))
+        conn.commit()
 
 def extract_text_from_pdf(pdf_path: str) -> list[str]:
     reader = PdfReader(pdf_path)
     return [page.extract_text() for page in reader.pages if page.extract_text()]
 
+def split_text(text: str, max_length: int = 300) -> list[str]:
+    return [text[i:i+max_length] for i in range(0, len(text), max_length)]
+
 def download_pdfs_from_drive():
     service = build("drive", "v3", credentials=credentials)
-
     query = f"'{DRIVE_FOLDER_ID}' in parents and mimeType='application/pdf' and trashed=false"
     response = service.files().list(q=query, fields="files(id, name)").execute()
     files = response.get("files", [])
@@ -104,17 +106,16 @@ def embed_pdfs(force: bool = False) -> bool:
         download_existing_db()
         download_pdfs_from_drive()
 
-        conn = sqlite3.connect(DB_PATH)
-        c = conn.cursor()
-        c.execute("""CREATE TABLE IF NOT EXISTS documents (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            filename TEXT,
-            text TEXT,
-            embedding BLOB
-        )""")
-        c.execute("SELECT filename FROM documents")
-        existing_files = {row[0] for row in c.fetchall()}
-        conn.close()
+        with sqlite3.connect(DB_PATH) as conn:
+            c = conn.cursor()
+            c.execute("""CREATE TABLE IF NOT EXISTS documents (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                filename TEXT,
+                text TEXT,
+                embedding BLOB
+            )""")
+            c.execute("SELECT filename FROM documents")
+            existing_files = {row[0] for row in c.fetchall()}
 
         embedded_any = False
         for filename in os.listdir(PDF_DIR):
@@ -129,10 +130,14 @@ def embed_pdfs(force: bool = False) -> bool:
                 text_chunks = extract_text_from_pdf(local_path)
                 if not text_chunks:
                     continue
-                chunk_embeddings = model.encode(text_chunks, batch_size=1, convert_to_numpy=True)
-                avg_embedding = np.mean(chunk_embeddings, axis=0).astype(np.float32)
-                full_text = "\n".join(text_chunks)
-                save_record_to_db(filename, full_text, avg_embedding)
+
+                for chunk in text_chunks:
+                    for piece in split_text(chunk):
+                        emb = model.encode(piece, convert_to_numpy=True).astype(np.float32)
+                        save_record_to_db(filename, piece, emb)
+                        del emb
+                        gc.collect()
+
                 embedded_any = True
             except Exception as e:
                 print(f"ERROR processing {filename}: {e}")
