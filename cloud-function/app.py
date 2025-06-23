@@ -10,12 +10,12 @@ def trigger_embedding():
     force = request.args.get("force", "false").lower() == "true"
     try:
         logging.info("POST / received, force=%s", force)
-        modified = embed_pdfs(force=force)
+        # Test with a single file first
+        modified = embed_pdfs(force=force, limit_files=1)
         return jsonify({"status": "done", "modified": modified})
     except Exception as e:
         logging.exception("Error during embedding")
         return jsonify({"status": "error", "message": str(e)}), 500
-
 
 @app.route("/status", methods=["GET"])
 def check_status():
