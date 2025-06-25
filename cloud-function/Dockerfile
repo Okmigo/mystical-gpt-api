@@ -1,14 +1,16 @@
+# Dockerfile
 FROM python:3.10-slim
 
 WORKDIR /app
 
 COPY . /app
 
+# Add build tools for psutil and general dependencies
 RUN apt-get update && \
-    apt-get install -y build-essential poppler-utils git \
-        libglib2.0-0 libsm6 libxext6 libxrender-dev && \
+    apt-get install -y build-essential gcc git && \
+    pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt && \
-    python -c "import psutil, flask, sentence_transformers, fitz" && \
-    rm -rf /root/.cache
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/* /root/.cache
 
 CMD ["gunicorn", "app:app", "--bind", "0.0.0.0:8080", "--timeout", "900", "--worker-class=gthread"]
