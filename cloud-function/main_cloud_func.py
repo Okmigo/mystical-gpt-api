@@ -60,8 +60,10 @@ download_model_from_gcs()
 model = SentenceTransformer(MODEL_LOCAL_DIR)
 
 def log_mem():
+    import psutil
     mem = psutil.virtual_memory()
     logger.info("MEMORY USAGE: %.2f%% used of %.2f GiB", mem.percent, mem.total / (1024**3))
+
 
 def download_existing_db():
     client = storage.Client(credentials=credentials)
