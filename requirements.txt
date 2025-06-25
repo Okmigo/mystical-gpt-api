@@ -1,5 +1,6 @@
 fastapi
 Flask
+psutil
 gunicorn
 google-cloud-storage
 google-auth
