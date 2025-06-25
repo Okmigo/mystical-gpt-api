@@ -1,3 +1,4 @@
+psutil
 flask
 python-dotenv
 google-api-python-client
@@ -10,4 +11,4 @@ PyMuPDF
 pdfminer.six
 sentence-transformers
 numpy
-psutil
+
