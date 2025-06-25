@@ -5,7 +5,8 @@ WORKDIR /app
 COPY . /app
 
 RUN apt-get update && \
-    apt-get install -y build-essential poppler-utils git libglib2.0-0 libsm6 libxext6 libxrender-dev && \
+    apt-get install -y build-essential poppler-utils git \
+        libglib2.0-0 libsm6 libxext6 libxrender-dev && \
     pip install --no-cache-dir -r requirements.txt && \
     python -c "import psutil, flask, sentence_transformers, fitz" && \
     rm -rf /root/.cache
