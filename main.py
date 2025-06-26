@@ -1,4 +1,3 @@
-
 # main.py — Mystical GPT API Server (SentenceTransformer, 384-dim)
 
 import os, sqlite3, json
@@ -6,6 +5,7 @@ from fastapi import FastAPI, Request
 from pydantic import BaseModel
 from sentence_transformers import SentenceTransformer, util
 import uvicorn
+from google.cloud import storage
 
 # ✅ Load model (must match embedding generation)
 model = SentenceTransformer("all-MiniLM-L6-v2")
@@ -54,6 +54,22 @@ def search_docs(request: QueryRequest):
 def ping():
     return {"message": "pong"}
 
-# 🖥️ Run locally for testing
+# ⬇️ GCS Download
+def download_db():
+    bucket_name = "mystical-gpt-bucket"
+    source_blob_name = "embeddings.db"
+    destination_file_name = "embeddings.db"
+
+    if os.path.exists(destination_file_name):
+        return
+
+    client = storage.Client()
+    bucket = client.bucket(bucket_name)
+    blob = bucket.blob(source_blob_name)
+    blob.download_to_filename(destination_file_name)
+    print("✅ Downloaded embeddings.db from GCS")
+
+# 🖥️ Run server
 if __name__ == "__main__":
+    download_db()
     uvicorn.run("main:app", host="0.0.0.0", port=8080, reload=False)
