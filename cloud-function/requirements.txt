@@ -11,3 +11,4 @@ PyMuPDF
 pdfminer.six
 sentence-transformers
 numpy
+gunicorn
