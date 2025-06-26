@@ -1,11 +1,9 @@
-# Dockerfile
 FROM python:3.10-slim
 
 WORKDIR /app
 
 COPY . /app
 
-# Add build tools for psutil and general dependencies
 RUN apt-get update && \
     apt-get install -y build-essential gcc git && \
     pip install --no-cache-dir --upgrade pip && \
