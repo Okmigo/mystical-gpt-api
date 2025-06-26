@@ -1,5 +1,12 @@
+import os
+import traceback
 from flask import Flask, request, jsonify
-from main_cloud_func import embed_pdfs, download_pdfs_from_drive
+
+try:
+    from main_cloud_func import embed_pdfs, download_pdfs_from_drive
+except Exception:
+    traceback.print_exc()  # Log the full import error for Cloud Run logs
+    raise
 
 app = Flask(__name__)
 
