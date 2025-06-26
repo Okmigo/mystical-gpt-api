@@ -9,4 +9,5 @@ google-api-python-client
 sentence-transformers
 PyPDF2
 PyMuPDF
+uvicorn
 numpy
