@@ -5,7 +5,7 @@ from flask import Flask, request, jsonify
 try:
     from main_cloud_func import embed_pdfs, download_pdfs_from_drive
 except Exception:
-    traceback.print_exc()  # Log the full import error for Cloud Run logs
+    traceback.print_exc()
     raise
 
 app = Flask(__name__)
@@ -24,4 +24,3 @@ def trigger_download():
 @app.route('/status', methods=['GET'])
 def get_status():
     return jsonify({'status': 'ok'})
-
