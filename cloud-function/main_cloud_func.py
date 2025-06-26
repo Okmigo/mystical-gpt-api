@@ -1,6 +1,6 @@
 import os
 import io
-import fitz  # PyMuPDF
+import fitz
 import sqlite3
 import tempfile
 import time
@@ -15,6 +15,7 @@ from googleapiclient.http import MediaIoBaseDownload
 from google.oauth2 import service_account
 import google.auth
 import numpy as np
+import psutil
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -59,7 +60,6 @@ download_model_from_gcs()
 model = SentenceTransformer(MODEL_LOCAL_DIR)
 
 def log_mem():
-    import psutil
     mem = psutil.virtual_memory()
     logger.info("MEMORY USAGE: %.2f%% used of %.2f GiB", mem.percent, mem.total / (1024**3))
 
