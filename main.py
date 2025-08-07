@@ -56,7 +56,7 @@ def ping():
 
 # ⬇️ GCS Download
 def download_db():
-    bucket_name = "mystical-gpt-bucket"
+    bucket_name = "mysticalbucket"
     source_blob_name = "embeddings.db"
     destination_file_name = "embeddings.db"
 
